@@ -1,0 +1,28 @@
+services:
+  timescale-db:
+    platform: linux/amd64
+    image: timescale/timescaledb:2.25.0-pg18
+    hostname: timescale-db
+    container_name: db-timescale
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U timescaledb -d timescaledb"]
+      interval: 15s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+    environment:
+      - POSTGRES_USER=timescaledb
+      - POSTGRES_PASSWORD=timescaledb
+      - POSTGRES_DB=timescaledb
+    command: ["postgres", "-c", "log_statement=none"]
+    expose:
+      - "5432"
+    ports:
+      - "5432:5432"
+    networks:
+      - default
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+
+volumes:
+  timescale_data: ~

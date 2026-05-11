@@ -1,0 +1,38 @@
+line-length = 130
+
+[lint]
+# select = ["ALL"]
+select = [
+    "A",    # warn about shadowing built-ins
+    "E",  # Pycodestyle errors
+    "F",  # Pyflakes errors
+    "W",  # Pycodestyle warnings
+    "C90",  # McCabe complexity
+    "I",  # Import order
+    "N",  # Naming conventions
+    "Q",  # Quotes
+    "S",  # Security issues
+    "B",  # Bugbear
+    "ANN",  # Annotations
+    "COM",  # Comments
+    "UP",  # Python 3.x compatibility
+    "PD",  # Pydantic
+]
+ignore = [
+    "B008",
+    "COM812", # trailing comma formatting conflict with formatter
+]
+
+
+[lint.pydocstyle]
+convention = "google"
+
+
+[lint.isort]
+known-first-party = ["postmodern"]  # so it knows to group first-party stuff last
+
+[format]
+quote-style = "double"
+# indent-style = "tab"
+docstring-code-format = true
+docstring-code-line-length = 20

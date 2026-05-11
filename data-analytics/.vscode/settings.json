@@ -1,0 +1,16 @@
+{
+    "ruff.path": [
+        "./ruff.toml"
+    ],
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.formatOnPaste": false,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+    "python.analysis.extraPaths": [
+        "./src",
+    ],
+}

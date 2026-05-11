@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  mongo-db:
+    platform: linux/amd64
+    image: mongo:6.0
+    hostname: mongo-db
+    container_name: db-mongo
+    expose:
+      - "27017"
+    ports:
+      - "27017:27017"
+    networks:
+      - default
+    volumes:
+      - mongo-db:/data/db
+      - mongo-config:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "localhost:27017/test", "--quiet"]
+      interval: 5s
+
+  orion:
+    platform: linux/amd64
+    image: quay.io/fiware/orion-ld:1.12.0
+    hostname: orion
+    container_name: fiware-orion
+    restart: always
+    depends_on:
+      - mongo-db
+    networks:
+      - default
+    ports:
+      - "1026:1026"
+    command: -dbhost mongo-db -logLevel DEBUG -forwarding -mongocOnly
+    healthcheck:
+      test: curl --fail -s http://orion:1026/version || exit 1
+      interval: 10s
+
+  timescale-db:
+    platform: linux/amd64
+    image: timescale/timescaledb:2.25.0-pg18
+    hostname: timescale-db
+    container_name: db-timescale
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U timescaledb -d timescaledb"]
+      interval: 15s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+    environment:
+      - POSTGRES_USER=timescaledb
+      - POSTGRES_PASSWORD=timescaledb
+      - POSTGRES_DB=timescaledb
+    command: ["postgres", "-c", "log_statement=none"]
+    expose:
+      - "5432"
+    ports:
+      - "5432:5432"
+    networks:
+      - default
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+
+volumes:
+  mongo-db: ~
+  mongo-config: ~
+  timescale_data: ~

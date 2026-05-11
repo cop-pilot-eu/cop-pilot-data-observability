@@ -1,0 +1,31 @@
+{
+  "name": "cop-pilot-data-observability",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@internationalized/date": "^3.11.0",
+    "@nuxt/ui": "^4.4.0",
+    "nuxt": "^4.3.0",
+    "nuxt-echarts": "^1.0.1",
+    "ramda": "^0.32.0",
+    "tailwindcss": "^4.1.18",
+    "ufo": "^1.6.3",
+    "vue": "^3.5.27",
+    "vue-router": "^4.6.4"
+  },
+  "packageManager": "pnpm@8.15.8+sha256.691fe176eea9a8a80df20e4976f3dfb44a04841ceb885638fe2a26174f81e65e",
+  "devDependencies": {
+    "@iconify-json/heroicons": "^1.2.3",
+    "@nuxt/icon": "^2.2.1",
+    "@nuxtjs/tailwindcss": "^6.14.0",
+    "@types/node": "^25.3.3",
+    "@types/ramda": "^0.31.1"
+  }
+}
