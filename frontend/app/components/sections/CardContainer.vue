@@ -72,15 +72,17 @@ const cardData = computed((): CardData[] => {
           : {
               textValue: `${driftDetected === 0 ? "No" : driftDetected} attributes with drift detected`,
               color: getColor(driftDetected === 0 ? 1 : -driftDetected),
-              level: getLevelIcon(driftDetected === 0 ? 1 : -driftDetected),
+              level: "neutral",
               tooltipText: tooltipText,
-              hideTooltip: false,
+              hideTooltip: driftDetected === 0,
             },
     },
     {
       title: "Data Completeness",
       headerIcon: "heroicons:chart-bar-solid",
-      value: props.dataQualityReport?.completeness ?? undefined,
+      value: isNil(props.dataQualityReport?.completeness)
+        ? undefined
+        : props.dataQualityReport?.completeness + "%",
       borderColor: getBorderColor(completenessDiff),
       comment: isNil(props.dataQualityReport?.completenessDiffPercentage)
         ? undefined
@@ -94,16 +96,16 @@ const cardData = computed((): CardData[] => {
     {
       title: "Avg Response Latency",
       headerIcon: "heroicons:clock",
-      value: props.dataQualityReport?.avgLatencyMs
-        ? props.dataQualityReport?.avgLatencyMs + "ms"
-        : undefined,
+      value: isNil(props.dataQualityReport?.avgLatencyMs)
+        ? undefined
+        : props.dataQualityReport?.avgLatencyMs + "ms",
       borderColor: getBorderColor(-latencyDiff),
       comment: isNil(props.dataQualityReport?.avgLatencyMs)
         ? undefined
         : {
             textValue: `${Math.abs(latencyDiff)}% vs reference dataset`,
             color: getColor(-latencyDiff),
-            level: getLevelIcon(-latencyDiff),
+            level: getLevelIcon(latencyDiff),
             hideTooltip: true,
           },
     },

@@ -46,7 +46,7 @@ const loadingSpinnerStatus = computed(() => !hasError && props.loading);
   <LoadingSpinner v-if="loadingSpinnerStatus" :height="height" />
   <ErrorCard v-else-if="hasError" :height="height" :errorMsg="hasError" />
   <NoResultsFound v-else-if="noData" :height="height" />
-  <div v-else :class="['flex', height]">
-    <VChart :option="options" />
+  <div v-else :class="['flex w-full min-w-0', height]">
+    <VChart :option="options" autoresize class="w-full" />
   </div>
 </template>

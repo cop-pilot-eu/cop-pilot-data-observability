@@ -25,6 +25,9 @@ export class ContextHistory {
 
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, any>;
+
+  @Column({ nullable: true })
+  brokerId: string;
 }
 
 export type ContextHistoryType = ContextHistory;

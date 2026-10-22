@@ -42,20 +42,19 @@ const getValue = computed(() => {
         </span>
       </div>
       <USkeleton v-else class="h-8 w-full bg-neutral-100" />
-
       <div class="min-h-8">
         <UTooltip
+          v-if="card.comment && !loading"
+          :disabled="card.comment.hideTooltip ?? true"
           :delay-duration="0"
-          :disabled="card.comment?.hideTooltip ?? true"
           :content="{
             align: 'start',
             side: 'bottom',
             sideOffset: 8,
           }"
-          :ui="{ content: 'p-0 bg-transparent border-0 shadow-none' }"
+          :ui="{ content: 'p-0 bg-transparent border-0 shadow-none ' }"
         >
           <div
-            v-if="card.comment"
             class="flex items-center gap-x-1 min-h-8"
             :class="card.comment.color"
           >
@@ -81,6 +80,9 @@ const getValue = computed(() => {
             </div>
           </template>
         </UTooltip>
+        <div v-if="loading" class="min-h-8 flex flex-col justify-end">
+          <USkeleton class="h-2 w-full bg-neutral-100" />
+        </div>
       </div>
     </div>
   </div>

@@ -57,15 +57,6 @@ $ yarn typeorm migration:revert
 $ yarn typeorm migration:show
 ```
 
-## Seed database
-
-```bash
-# seed database with CSV file
-$ ./seed-db.js seeds/dummy_context_data.csv context_history
-
-$ ./seed-db.js seeds/dummy_reference_set.csv reference_data
-```
-
 ## Compile and run the project
 
 ```bash
@@ -77,21 +68,6 @@ $ yarn run start:dev
 
 # production mode
 $ yarn run start:prod
-```
-
-## Run weather collector
-
-The collector retrieves humidity and temperature data from `openweathermap.org`, maps it to the leafHumidity and leafTemperature properties of the AgriFoodParcel entity, and sends the resulting LD+JSON payload to the Context Broker.
-
-Additionally, the collector is responsible for:
-
-- Creating the AgriFoodParcel entity (if it does not already exist)
-
-- Creating the required subscription (if it does not already exist), enabling the Context Broker to automatically send new entity updates/notifications to the specified URL
-
-```bash
-# start collector
-$ yarn run start:collector
 ```
 
 ## Run tests

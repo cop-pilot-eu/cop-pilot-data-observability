@@ -430,7 +430,7 @@ class DataObservability:
             deltas = dataframe.index.to_series().diff().dropna()
             detected_mode = deltas.mode()[0]
             freq = pd.to_timedelta(
-                np.round(detected_mode.total_seconds() / 60) * 60, unit="s"
+                max(np.round(detected_mode.total_seconds()), 1), unit="s"
             ).to_pytimedelta()  # This is a Timedelta object
 
         return freq

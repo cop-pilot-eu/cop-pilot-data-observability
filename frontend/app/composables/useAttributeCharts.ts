@@ -21,7 +21,10 @@ export const useAttributeCharts = (props: {
   watch(
     attributesList,
     (newAttributesList) => {
-      if (newAttributesList.length > 0 && isNil(attributeSelected.value)) {
+      if (
+        isNil(attributeSelected.value) ||
+        !newAttributesList.includes(attributeSelected.value)
+      ) {
         attributeSelected.value = newAttributesList[0];
       }
     },

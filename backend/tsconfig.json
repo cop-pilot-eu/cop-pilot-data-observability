@@ -20,6 +20,8 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
+    "noFallthroughCasesInSwitch": false,
+    // TODO: revert to true, scope fix to entity classes instead (e.g. `declare`/`!`)
+    "strictPropertyInitialization": false,
   }
 }

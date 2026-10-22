@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
@@ -6,6 +7,7 @@ import { AppConfig, AppConfigDTO } from './common';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const appConfig = app.get<AppConfigDTO>(AppConfig.KEY);
+  const logger = new Logger('Bootstrap');
 
   app.enableCors({
     origin: appConfig.frontendUrl,
@@ -31,6 +33,7 @@ async function bootstrap() {
   }
 
   await app.listen(appConfig.port);
+  logger.log(`Listening on port ${appConfig.port}`);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-floating-promises

@@ -1,7 +1,14 @@
 declare global {
+  type SelectOptionAPI = {
+    title: string;
+    value: string;
+  };
+
   type StatsPayload = {
     from: Date | string;
     to: Date | string;
+    clusterId: string;
+    brokerId: string;
     entityId: string;
   };
 

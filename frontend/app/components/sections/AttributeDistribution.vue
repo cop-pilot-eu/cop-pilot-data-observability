@@ -65,14 +65,14 @@ const {
             :loading="loading"
             :error="error"
             :options="barChartOptions"
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
           <ChartContainer
             :title="`${attributeSelected ?? ''} Drift Score Over Time`"
             :loading="loading"
             :error="error"
             :options="lineChartOptions"
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
       </div>

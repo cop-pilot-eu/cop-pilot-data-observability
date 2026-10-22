@@ -51,8 +51,20 @@ export const useAPI = () => {
       API<T>(url, { method: "DELETE", ...opts }),
   };
 
+  const ClustersAPI = {
+    get: () => $api.get<SelectOptionAPI[]>("/api/clusters"),
+  };
+
+  const BrokersAPI = {
+    get: (clusterId: string) =>
+      $api.get<SelectOptionAPI[]>(
+        `/api/brokers/${encodeURIComponent(clusterId)}`,
+      ),
+  };
+
   const EntitiesAPI = {
-    get: () => $api.get("/api/entities"),
+    get: (brokerId: string) =>
+      $api.get<string[]>(`/api/entities/${encodeURIComponent(brokerId)}`),
   };
 
   const StatsAPI = {
@@ -60,6 +72,8 @@ export const useAPI = () => {
   };
 
   return {
+    ClustersAPI,
+    BrokersAPI,
     EntitiesAPI,
     StatsAPI,
     loading,

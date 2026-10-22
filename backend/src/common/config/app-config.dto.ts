@@ -30,8 +30,21 @@ export class AppConfigDTO {
   @Expose({ name: 'DATA_ANALYTICS_URL' })
   public readonly dataAnalyticsUrl!: string;
 
+  @IsString()
+  @Expose({ name: 'NOTIFY_BASE_URL' })
+  public readonly notifyBaseUrl!: string;
+
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  @Expose({ name: 'BROKER_SYNC_ENABLED' })
+  private readonly brokerSync: 'true' | 'false' = 'false';
+
   get isProduction(): boolean {
     return this.env === 'production';
+  }
+
+  get brokerSyncEnabled(): boolean {
+    return this.brokerSync === 'true';
   }
 
   get isDevelopment(): boolean {

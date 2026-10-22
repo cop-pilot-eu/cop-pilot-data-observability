@@ -1,0 +1,13 @@
+node_modules
+dist
+logs
+.env
+.env.*
+!.env.sample
+.git
+.claude
+docs
+test
+coverage
+.nyc_output
+*.md

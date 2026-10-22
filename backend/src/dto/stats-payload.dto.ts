@@ -24,5 +24,15 @@ export class StatsPayloadDTO {
   @ApiProperty()
   @IsNotEmpty()
   @IsString()
+  readonly clusterId: string;
+
+  @ApiProperty()
+  @IsNotEmpty()
+  @IsString()
+  readonly brokerId: string;
+
+  @ApiProperty()
+  @IsNotEmpty()
+  @IsString()
   readonly entityId: string;
 }

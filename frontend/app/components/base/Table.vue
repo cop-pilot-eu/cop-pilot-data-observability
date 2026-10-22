@@ -115,7 +115,7 @@ const getColorOfDriftScore = (
       </template>
 
       <template #mean-cell="{ row }">
-        {{ roundedUpValue(row.getValue("driftScore")) }}
+        {{ roundedUpValue(row.getValue("mean")) }}
       </template>
       <template #upperThreshold-cell="{ row }">
         {{ roundedUpValue(row.getValue("upperThreshold")) }}

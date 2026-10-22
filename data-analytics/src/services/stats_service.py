@@ -35,7 +35,11 @@ class StatsService:
         end_dt = datetime.fromisoformat(payload.to_datetime.replace("Z", "+00:00"))
 
         async with async_session() as session:
-            result = await session.exec(select(ReferenceData).order_by(ReferenceData.observed_at.desc()))
+            result = await session.exec(
+                select(ReferenceData)
+                .where(ReferenceData.entity_id == payload.entity_id)
+                .order_by(ReferenceData.observed_at.desc())
+            )
             data = result.all()
 
             reference_df = pd.DataFrame([item.model_dump() for item in data])

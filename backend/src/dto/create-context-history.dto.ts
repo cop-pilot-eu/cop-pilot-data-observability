@@ -50,6 +50,11 @@ export class CreateContextHistoryDTO {
   @IsOptional()
   @IsString()
   readonly metadata: Record<string, any>;
+
+  @ApiProperty()
+  @IsNotEmpty()
+  @IsString()
+  readonly brokerId: string;
 }
 
 export type CreateContextHistory = CreateContextHistoryDTO;

@@ -5,8 +5,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { resolve } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { BrokerSyncService } from './brokers/broker-sync.service';
 import { AppConfig, DatabaseConfigDTO, DBConfig } from './common';
-import { ContextHistory } from './entities';
+import { Broker, ContextHistory } from './entities';
 import { SnakeNamingStrategy } from './utils';
 
 @Module({
@@ -25,15 +26,15 @@ import { SnakeNamingStrategy } from './utils';
         username: options.username,
         password: options.password,
         database: options.databaseName,
-        entities: [ContextHistory],
+        entities: [ContextHistory, Broker],
         synchronize: false,
         namingStrategy: new SnakeNamingStrategy(),
       }),
     }),
-    TypeOrmModule.forFeature([ContextHistory]),
+    TypeOrmModule.forFeature([ContextHistory, Broker]),
     HttpModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, BrokerSyncService],
 })
 export class AppModule {}
