@@ -35,7 +35,11 @@ export function parseNotification(
     // to receive time rather than drop the row.
     const observedAt =
       (entityConfig.observedAtSource &&
-        resolveObservedAt(entity, entityConfig.observedAtSource)) ||
+        resolveObservedAt(
+          entity,
+          entityConfig.observedAtSource,
+          broker.sourceTimeZone,
+        )) ||
       receivedAt;
 
     for (const field of entityConfig.fields) {
@@ -85,7 +89,11 @@ function extractEntities(body: unknown): RawEntity[] {
 // an NGSI attribute's own sub-properties — walk each segment as a raw object
 // property first (NGSI sub-properties aren't {type,value}-wrapped until the
 // final segment), then unwrap the landed value through parseAttribute.
-function resolveObservedAt(entity: RawEntity, source: string): Date | null {
+function resolveObservedAt(
+  entity: RawEntity,
+  source: string,
+  timeZone?: string,
+): Date | null {
   const [root, ...rest] = source.split('.');
   let raw: unknown = entity[root];
   for (const key of rest) {
@@ -94,8 +102,40 @@ function resolveObservedAt(entity: RawEntity, source: string): Date | null {
   }
   const value = parseAttribute(raw)?.value ?? raw;
   if (typeof value !== 'string') return null;
-  const date = new Date(value);
+  const date =
+    timeZone && !HAS_OFFSET.test(value)
+      ? parseInZone(value, timeZone)
+      : new Date(value);
   return isNaN(date.getTime()) ? null : date;
+}
+
+// trailing `Z` or `±hh:mm` / `±hhmm` — the value pins its own instant.
+const HAS_OFFSET = /(Z|[+-]\d{2}:?\d{2})$/i;
+
+// Wall-clock `value` (no offset) read in `timeZone` (cluster2
+// FloodMonitoring sends Europe/Madrid local time). Offset is looked up at the
+// instant itself, so DST is handled: +01:00 in winter, +02:00 in summer.
+// The repeated hour at the autumn DST switch is ambiguous, this
+// picks one of the two (≤1 h off, once a year); fix needs the source to send
+// an offset.
+function parseInZone(value: string, timeZone: string): Date {
+  const guess = new Date(`${value}Z`);
+  if (isNaN(guess.getTime())) return guess;
+  const first = new Date(`${value}${zoneOffset(guess, timeZone)}`);
+  // second pass: near a DST switch the offset at `guess` can differ from the
+  // offset at the real instant.
+  return new Date(`${value}${zoneOffset(first, timeZone)}`);
+}
+
+// `GMT+01:00` -> `+01:00`, bare `GMT` -> `Z`.
+function zoneOffset(at: Date, timeZone: string): string {
+  const name = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    timeZoneName: 'longOffset',
+  })
+    .formatToParts(at)
+    .find((part) => part.type === 'timeZoneName')!.value;
+  return name.slice(3) || 'Z';
 }
 
 function parseAttribute(attribute: unknown): {

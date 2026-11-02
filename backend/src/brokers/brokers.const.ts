@@ -14,19 +14,25 @@ export const BROKERS = {
     basePath: '/ngsi-ld/v1',
     ldContext:
       'https://smart-data-models.github.io/dataModel.Environment/context.jsonld',
+    // FloodMonitoring observationDateTime arrives with no Z/offset, in Madrid
+    // local time. TimeInstant on the other types carries Z, so this does not
+    // touch them.
+    sourceTimeZone: 'Europe/Madrid',
     entityTypes: {
-      // TimeInstant frozen at source: same stale value across readings, so
-      // it's not observed time — use receivedAt.
+      // TimeInstant live on the active entities: whole seconds, within 1 s of
+      // the broker write. Inactive entities keep a frozen TimeInstant — if one
+      // writes again, its rows get that stale date, not receivedAt.
       WasteContainer: {
         subscribe: true,
-        observedAtSource: null,
+        observedAtSource: 'TimeInstant',
         fields: ['fillingLevel', 'distance', 'temperature', 'battery'],
       },
-      // TimeInstant frozen at source: same value across every entity, so
-      // it's not observed time — use receivedAt.
+      // TimeInstant live at source: hourly reading stamped on the hour,
+      // written ~2 s later. Same value across entities = shared hourly batch,
+      // not a frozen clock.
       MobileRadar: {
         subscribe: true,
-        observedAtSource: null,
+        observedAtSource: 'TimeInstant',
         fields: [
           'avgSpeed',
           'maxSpeed',
@@ -37,11 +43,11 @@ export const BROKERS = {
           'vehicleHeavy',
         ],
       },
-      // TimeInstant frozen at source: same stale value across readings, so
-      // it's not observed time — use receivedAt.
+      // TimeInstant live at source: whole seconds, within 1 s of the broker
+      // write.
       Access: {
         subscribe: true,
-        observedAtSource: null,
+        observedAtSource: 'TimeInstant',
         fields: [
           'totalCounterIn',
           'totalCounterOut',
@@ -50,24 +56,35 @@ export const BROKERS = {
           'line_1_period_out',
         ],
       },
-      // observationDateTime unreliable at source: 1 of 3 entities stale by
-      // ~3 months, rest fresh — use receivedAt.
+      // observationDateTime is the reading time: read every 30 min, sent every
+      // 60 min, so one send carries 2 readings and the newest is 0-30 min old.
+      // Madrid local time, no offset — see sourceTimeZone above.
       FloodMonitoring: {
         subscribe: true,
-        observedAtSource: null,
-        fields: ['currentLevel', 'measuredDistance'],
+        observedAtSource: 'observationDateTime',
+        fields: [
+          'currentLevel',
+          'measuredDistance',
+          'alertLevel',
+          'dangerLevel',
+          'referenceLevel',
+        ],
       },
-      // DevEUI population only. `t` stale at source: frozen at one value
-      // across every entity — use receivedAt.
+      // DevEUI population only. TimeInstant live at source: per-device time,
+      // ~2-3 s before the broker write, advances on each reading. `t` is gone.
+      // co/no2/o3/pm10/pm25/so2 exist only on the out-of-scope address
+      // entities — not added. ch2o is on all entities.
       AirQualityObserved: {
         subscribe: true,
-        observedAtSource: null,
+        observedAtSource: 'TimeInstant',
         fields: [
           'hcho',
+          'ch2o',
           'avgScaledValue',
           'minScaledValue',
           'maxScaledValue',
           'batteryLevel',
+          'batteryLevelHuman',
         ],
       },
     },

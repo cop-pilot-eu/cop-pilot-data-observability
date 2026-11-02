@@ -32,5 +32,6 @@ export interface BrokerConfig {
   headers?: Record<string, string>; // v2 only: Fiware-Service, Fiware-ServicePath
   ldContext?: string; // LD only
   nonStandardBehaviour?: string; // free text, e.g. cluster4 envelope wrapping
+  sourceTimeZone?: string; // IANA zone for observedAtSource values sent without Z/offset; values with one ignore it
   entityTypes: Record<string, EntityTypeConfig>;
 }

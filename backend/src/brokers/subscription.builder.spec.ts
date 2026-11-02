@@ -105,10 +105,16 @@ describe('buildSubscriptionBody', () => {
         endpoint: { uri: notifyUrlCluster2, accept: 'application/json' },
       },
     });
-    // no `observationDateTime` — cluster2's `observedAtSource` is null,
-    // so only the value fields are pinned.
+    // `observationDateTime` pinned as the observedAtSource root.
     expect((body as any).notification.attributes.sort()).toStrictEqual(
-      ['currentLevel', 'measuredDistance'].sort(),
+      [
+        'currentLevel',
+        'measuredDistance',
+        'alertLevel',
+        'dangerLevel',
+        'referenceLevel',
+        'observationDateTime',
+      ].sort(),
     );
     expect(isOurs(cluster2, { id: (body as any).id })).toBe(true);
   });

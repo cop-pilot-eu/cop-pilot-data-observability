@@ -108,9 +108,7 @@ describe('parseNotification — cluster2 (NGSI-LD, SDM context)', () => {
       id: 'urn:ngsi-ld:FloodMonitoring:WIOTRAD_CanalCrespo',
       type: floodType,
       currentLevel: { type: 'Property', value: 0 },
-      // present on the wire but unreliable at source: 1 of 3
-      // entities stale by ~3 months, so the registry pins
-      // `observedAtSource: null` and this value is ignored.
+      // Madrid local time, no offset: summer, so CEST +02:00.
       observationDateTime: { type: 'Property', value: '2026-09-09T08:00:20' },
     };
     const rows = parseNotification(
@@ -121,7 +119,31 @@ describe('parseNotification — cluster2 (NGSI-LD, SDM context)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].attrName).toBe('currentLevel');
     expect(rows[0].entityType).toBe(floodType);
-    expect(rows[0].observedAt.toISOString()).toBe(receivedAt.toISOString());
+    expect(rows[0].observedAt.toISOString()).toBe('2026-09-09T06:00:20.000Z');
+  });
+
+  it.each([
+    // winter, CET +01:00
+    ['2026-11-02T12:00:02', '2026-11-02T11:00:02.000Z'],
+    // value with its own offset: sourceTimeZone ignored
+    ['2026-11-02T12:00:02Z', '2026-11-02T12:00:02.000Z'],
+    ['2026-11-02T12:00:02+03:00', '2026-11-02T09:00:02.000Z'],
+  ])('FloodMonitoring observationDateTime %s -> %s', (value, expected) => {
+    const rows = parseNotification(
+      cluster2,
+      {
+        data: [
+          {
+            id: 'urn:ngsi-ld:FloodMonitoring:WIOTRAD_CarrerMajor',
+            type: floodType,
+            currentLevel: { type: 'Property', value: 1 },
+            observationDateTime: { type: 'Property', value },
+          },
+        ],
+      },
+      receivedAt,
+    );
+    expect(rows[0].observedAt.toISOString()).toBe(expected);
   });
 
   it('ignores `t` on a DevEUI AirQualityObserved entity — frozen at source', () => {
@@ -129,8 +151,8 @@ describe('parseNotification — cluster2 (NGSI-LD, SDM context)', () => {
       id: 'urn:ngsi-ld:AirQualityObserved:36-32-37-32-55-32-78-0f',
       type: aqoType,
       hcho: { type: 'Property', value: 0 },
-      // `t` frozen across every entity — registry pins
-      // `observedAtSource: null`, so receivedAt wins.
+      // `t` frozen at source, since removed. Registry pins `TimeInstant`;
+      // this entity has none, so receivedAt wins.
       t: { type: 'Property', value: '2026-07-07T21:19:28.000Z' },
     };
     const rows = parseNotification(
@@ -142,11 +164,11 @@ describe('parseNotification — cluster2 (NGSI-LD, SDM context)', () => {
     expect(rows[0].observedAt.toISOString()).toBe(receivedAt.toISOString());
   });
 
-  it('falls back to receivedAt when observedAtSource is null (Access — TimeInstant frozen at source)', () => {
+  it('uses TimeInstant as observedAt (Access — live at source)', () => {
     const accessEntity = {
       id: 'urn:ngsi-ld:Access:24-e1-24-76-7f-02-42-38',
       type: 'Access',
-      TimeInstant: { type: 'Property', value: '2026-02-17T06:00:00.000Z' },
+      TimeInstant: { type: 'Property', value: '2026-09-08T09:59:59.000Z' },
       totalCounterIn: { type: 'Property', value: 7 },
     };
     const rows = parseNotification(
@@ -155,21 +177,23 @@ describe('parseNotification — cluster2 (NGSI-LD, SDM context)', () => {
       receivedAt,
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0].observedAt).toBe(receivedAt);
+    expect(rows[0].observedAt.toISOString()).toBe('2026-09-08T09:59:59.000Z');
   });
 
-  it('skips an address-population AirQualityObserved entity with no `t`, not crash', () => {
+  it('address-population AirQualityObserved entity: ch2o falls back to receivedAt, pollutants skipped', () => {
     const addressEntity = {
       id: 'urn:ngsi-ld:AirQualityObserved:Francia',
       type: aqoType,
       ch2o: { type: 'Property', value: 0 },
+      no2: { type: 'Property', value: 12 },
     };
     const rows = parseNotification(
       cluster2,
       { data: [addressEntity] },
       receivedAt,
     );
-    expect(rows).toStrictEqual([]);
+    expect(rows.map((r) => r.attrName)).toStrictEqual(['ch2o']);
+    expect(rows[0].observedAt).toBe(receivedAt);
   });
 });
 
@@ -226,7 +250,11 @@ describe('parseNotification — cluster4 (OneSource)', () => {
       type: 'TemperatureSensorAggregator',
       temperature: { type: 'Number', value: 26.8, metadata: {} },
     };
-    const rows = parseNotification(cluster4, { data: [bareEntity] }, receivedAt);
+    const rows = parseNotification(
+      cluster4,
+      { data: [bareEntity] },
+      receivedAt,
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0].observedAt).toBe(receivedAt);
   });
