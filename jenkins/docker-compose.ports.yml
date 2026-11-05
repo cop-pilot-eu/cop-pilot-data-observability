@@ -1,0 +1,11 @@
+# Host port mappings: production deployment only (never the CI test stack).
+# Database and data-analytics are intentionally NOT published; they are only
+# reachable on the compose network. Use `scripts/compose.sh exec db psql ...`
+# for DB access.
+services:
+  backend:
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+  frontend:
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"

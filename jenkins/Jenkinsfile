@@ -1,0 +1,333 @@
+// cop-pilot-data-observability: validate, test, build and deploy
+// (frontend + backend + data-analytics + TimescaleDB).
+//
+// Triggered on every push (githubPush). Every branch is validated and
+// integration-tested in a throwaway stack. Only DEPLOY_BRANCH (default: main)
+// is redeployed. Images are built and run on the agent itself; nothing is
+// pushed to a registry.
+//
+// DATA SAFETY: see jenkins/README.md. In short:
+//   * production is touched only after all tests pass;
+//   * on redeploy only the 3 app containers are stopped and replaced; the DB
+//     container is never recreated and its volume is `external`, so compose
+//     can never delete it;
+//   * pending migrations always run after a verified pg_dump backup;
+//   * this pipeline contains no `down -v`, `volume rm` or `volume prune` that
+//     could reach the production volume.
+
+def isDeployBranch() {
+    def branch = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').replaceFirst(/^origin\//, '')
+    return branch == params.DEPLOY_BRANCH
+}
+
+// Lint findings mark the build UNSTABLE instead of failing it, unless
+// STRICT_LINT is set (the code base currently has open lint findings).
+def lint(String label, String cmd) {
+    if (params.STRICT_LINT) {
+        sh label: label, script: cmd
+    } else {
+        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+            sh label: label, script: cmd
+        }
+    }
+}
+
+def cleanupCiStacks() {
+    // Only touches compose projects named dataobs-ci-* and volumes labelled
+    // com.cop-pilot.ci=true. The production project/volume match neither.
+    sh label: 'Remove CI test stacks', script: '''
+        for p in $(docker ps -a --filter label=com.docker.compose.project --format '{{.Label "com.docker.compose.project"}}' | grep -E '^dataobs-ci-[0-9]+$' | sort -u); do
+            echo "Removing CI stack $p"
+            docker ps -aq --filter "label=com.docker.compose.project=$p" | xargs -r docker rm -f >/dev/null
+            docker network rm "${p}_default" >/dev/null 2>&1 || true
+        done
+        docker volume ls -q --filter label=com.cop-pilot.ci=true | grep -E '^dataobs-ci-[0-9]+-db$' | xargs -r docker volume rm || true
+    '''
+}
+
+pipeline {
+    agent {
+        node {
+            label 'bml-observability-components'
+        }
+    }
+
+    options {
+        // Never let two commits deploy at the same time.
+        disableConcurrentBuilds()
+        timeout(time: 90, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+
+    triggers {
+        githubPush()
+    }
+
+    parameters {
+        string(name: 'DEPLOY_BRANCH', defaultValue: 'main',
+               description: 'Only this branch is deployed; other branches are only tested')
+        string(name: 'DB_VOLUME', defaultValue: 'data-observability_timescale_data',
+               description: 'EXISTING Docker volume that holds the production TimescaleDB data. Never deleted by this pipeline.')
+        string(name: 'DB_NAME', defaultValue: 'timescaledb',
+               description: 'Database name inside the TimescaleDB cluster')
+        booleanParam(name: 'ALLOW_NEW_DB_VOLUME', defaultValue: false,
+               description: 'First install only: allow starting on a missing/empty DB volume (otherwise the deploy aborts to protect against a wrong volume name)')
+        booleanParam(name: 'STOP_CONFLICTING_CONTAINERS', defaultValue: false,
+               description: 'One-time migration: stop (not remove) containers outside this stack that use the DB volume or the frontend/backend ports')
+        string(name: 'PUBLIC_HOST', defaultValue: '167.233.199.19',
+               description: 'Host name/IP browsers use to reach the dashboard (sets FRONTEND_URL; empty = first IP of the agent)')
+        string(name: 'FRONTEND_PORT', defaultValue: '3000', description: 'Host port for the dashboard')
+        string(name: 'BACKEND_PORT', defaultValue: '5000', description: 'Host port for the backend API (broker notifications arrive here)')
+        string(name: 'NOTIFY_BASE_URL', defaultValue: 'http://suite5-brokers-dashboard.ziti:5000',
+               description: 'Base URL the context brokers call back to (empty = http://PUBLIC_HOST:BACKEND_PORT)')
+        booleanParam(name: 'BROKER_SYNC_ENABLED', defaultValue: true,
+               description: 'Production only: let the backend create/recreate/delete broker subscriptions on boot')
+        string(name: 'BACKUP_DIR', defaultValue: '',
+               description: 'Where pg_dump backups go on the agent (empty = $HOME/backups/cop-pilot-data-observability)')
+        string(name: 'KEEP_BACKUPS', defaultValue: '10', description: 'Number of DB backups to keep')
+        booleanParam(name: 'FORCE_BACKUP', defaultValue: false,
+               description: 'Take a DB backup on this deploy even if there are no pending migrations')
+        booleanParam(name: 'STRICT_LINT', defaultValue: false, description: 'Fail the build on lint findings (default: mark UNSTABLE)')
+    }
+
+    environment {
+        APP_NAME         = "cop-pilot-data-observability"
+        MAJOR_RELEASE    = "0.1"
+        DOCKER_TAG       = "${MAJOR_RELEASE}.${env.BUILD_NUMBER}"
+        IMAGE_PREFIX     = "cop-pilot-eu/"
+        DB_CREDS_ID      = "cop-pilot-data-observability-db"
+        PROD_PROJECT     = "cop-pilot-data-observability"
+        CI_PROJECT       = "dataobs-ci-${env.BUILD_NUMBER}"
+        CI_DB_VOLUME     = "dataobs-ci-${env.BUILD_NUMBER}-db"
+        CI_ENV           = "${env.WORKSPACE}/.ci/ci.env"
+        PROD_ENV         = "${env.WORKSPACE}/.ci/prod.env"
+        COMPOSE          = "jenkins/scripts/compose.sh"
+        BE_VALIDATE_IMG  = "dataobs-be-validate:${env.BUILD_NUMBER}"
+        AN_VALIDATE_IMG  = "dataobs-an-validate:${env.BUILD_NUMBER}"
+    }
+
+    stages {
+        // ***************
+        // *** PREPARE ***
+        // ***************
+        stage('Prepare') {
+            steps {
+                script {
+                    env.DEPLOY = isDeployBranch() ? 'true' : 'false'
+                    env.HOST_ADDR = params.PUBLIC_HOST?.trim() ?:
+                        sh(script: "hostname -I | awk '{print \$1}'", returnStdout: true).trim()
+                    env.FRONTEND_URL_VALUE = "http://${env.HOST_ADDR}:${params.FRONTEND_PORT}"
+                    env.NOTIFY_URL_VALUE = params.NOTIFY_BASE_URL?.trim() ?:
+                        "http://${env.HOST_ADDR}:${params.BACKEND_PORT}"
+                    echo "Branch: ${env.BRANCH_NAME ?: env.GIT_BRANCH} | deploy: ${env.DEPLOY} | tag: ${env.DOCKER_TAG}"
+                }
+                script { cleanupCiStacks() }
+                sh label: 'Write compose env files', script: '''
+                    set -eu
+                    chmod +x jenkins/scripts/*.sh jenkins/tests/*.sh
+                    mkdir -p "$(dirname "$CI_ENV")"
+
+                    # Throwaway integration-test stack: own project, own volume,
+                    # no host ports, broker sync hard-disabled.
+                    cat > "$CI_ENV" <<EOF
+COMPOSE_PROJECT_NAME='${CI_PROJECT}'
+DOCKER_TAG='${DOCKER_TAG}'
+IMAGE_PREFIX='${IMAGE_PREFIX}'
+DB_VOLUME='${CI_DB_VOLUME}'
+DB_NAME='dataobs_ci'
+DB_USERNAME='ci'
+DB_PASSWORD='ci-${BUILD_NUMBER}'
+FRONTEND_URL='http://frontend:3000'
+NOTIFY_BASE_URL='http://ci.invalid:3001'
+BROKER_SYNC_ENABLED='false'
+USE_PORTS='false'
+EOF
+
+                    # Production stack. DB credentials are NOT written here; they
+                    # come from the Jenkins credential at deploy time.
+                    cat > "$PROD_ENV" <<EOF
+COMPOSE_PROJECT_NAME='${PROD_PROJECT}'
+DOCKER_TAG='${DOCKER_TAG}'
+IMAGE_PREFIX='${IMAGE_PREFIX}'
+DB_VOLUME='${DB_VOLUME}'
+DB_NAME='${DB_NAME}'
+FRONTEND_URL='${FRONTEND_URL_VALUE}'
+NOTIFY_BASE_URL='${NOTIFY_URL_VALUE}'
+BROKER_SYNC_ENABLED='${BROKER_SYNC_ENABLED}'
+FRONTEND_PORT='${FRONTEND_PORT}'
+BACKEND_PORT='${BACKEND_PORT}'
+USE_PORTS='true'
+EOF
+                    "$COMPOSE" "$CI_ENV" config --quiet
+                '''
+            }
+        }
+
+        // ***********************************
+        // *** VALIDATE: LINT + UNIT TESTS ***
+        // ***********************************
+        stage('Validate') {
+            parallel {
+                stage('Backend') {
+                    steps {
+                        sh label: 'Build backend (build stage, with dev deps)',
+                           script: 'docker build --target build -t "$BE_VALIDATE_IMG" backend'
+                        sh label: 'Backend unit tests (jest)',
+                           script: 'docker run --rm "$BE_VALIDATE_IMG" yarn -s jest --ci'
+                        script {
+                            lint('Backend lint (eslint + prettier)', '''
+                            docker run --rm "$BE_VALIDATE_IMG" sh -c \
+                              'npx eslint "{src,apps,libs,test}/**/*.ts" && npx prettier --check "src/**/*.ts"'
+                        ''')
+                        }
+                    }
+                }
+                stage('Data analytics') {
+                    steps {
+                        sh label: 'Build data-analytics image',
+                           script: 'docker build -t "$AN_VALIDATE_IMG" data-analytics'
+                        sh label: 'Import check + stats engine run on sample CSVs + pytest', script: '''
+                            docker run --rm \
+                              -e POSTGRES_HOST=unused -e POSTGRES_PORT=5432 -e POSTGRES_USER=unused \
+                              -e POSTGRES_PASSWORD=unused -e POSTGRES_DB=unused \
+                              --entrypoint bash "$AN_VALIDATE_IMG" -c '
+                                set -e
+                                uv run --no-sync python -c "import main; assert any(r.path == \\"/calculate-stats\\" for r in main.app.routes)"
+                                timeout 600 uv run --no-sync python calculate_stats.py \
+                                    inputs/dummy_context_data.csv inputs/dummy_reference_set.csv | cut -c1-500
+                                if [ -n "$(find . -path ./.venv -prune -o \\( -name "test_*.py" -o -name "*_test.py" \\) -print -quit)" ]; then
+                                    uv run --no-sync pytest -q
+                                else
+                                    echo "No pytest tests in data-analytics yet; skipping pytest."
+                                fi'
+                        '''
+                        script {
+                            lint('Data-analytics lint (ruff)', '''
+                            docker run --rm --entrypoint bash "$AN_VALIDATE_IMG" -c \
+                              'uv run --no-sync ruff check . --extend-exclude notebooks && uv run --no-sync ruff format --check . --extend-exclude notebooks'
+                        ''')
+                        }
+                    }
+                }
+            }
+        }
+
+        // ******************************
+        // *** BUILD RELEASE IMAGES   ***
+        // ******************************
+        // Built once on the agent; exactly these images are integration-tested and
+        // deployed. The frontend has no test runner, so its production build
+        // (nuxt build) is its validation.
+        stage('Build_Docker_Images') {
+            steps {
+                sh '"$COMPOSE" "$CI_ENV" build'
+            }
+        }
+
+        // ************************************************
+        // *** INTEGRATION TEST (throwaway full stack)  ***
+        // ************************************************
+        stage('Integration_Test') {
+            steps {
+                sh label: 'Start CI stack, migrate, run functional tests', script: '''
+                    set -eu
+                    docker volume create --label com.cop-pilot.ci=true "$CI_DB_VOLUME" >/dev/null
+                    ALLOW_NEW_DB_VOLUME=true jenkins/scripts/db-preflight.sh "$CI_ENV"
+                    "$COMPOSE" "$CI_ENV" up -d --wait --wait-timeout 300 db
+                    SKIP_BACKUP=true jenkins/scripts/migrate.sh "$CI_ENV"
+                    "$COMPOSE" "$CI_ENV" up -d --no-deps --wait --wait-timeout 300 data-analytics backend frontend
+                    jenkins/tests/func_test.sh "$CI_ENV" --with-ingest
+                '''
+            }
+            post {
+                failure {
+                    sh '"$COMPOSE" "$CI_ENV" logs --no-color --tail=150 || true'
+                }
+                always {
+                    script { cleanupCiStacks() }
+                }
+            }
+        }
+
+        // ******************
+        // *** DEPLOYMENT ***
+        // ******************
+        stage('Deployment') {
+            when {
+                environment name: 'DEPLOY', value: 'true'
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${DB_CREDS_ID}",
+                                                  usernameVariable: 'DB_USERNAME', passwordVariable: 'DB_PASSWORD')]) {
+                    script {
+                        // Remember what is running now, for rollback.
+                        env.PREV_TAG = sh(returnStdout: true, script: '''
+                            cid=$(docker ps -aq --filter "label=com.docker.compose.project=$PROD_PROJECT" \
+                                               --filter "label=com.docker.compose.service=backend" | head -n1)
+                            if [ -n "$cid" ]; then docker inspect -f '{{.Config.Image}}' "$cid" | sed 's/.*://'; fi
+                        ''').trim()
+                        echo "Currently deployed tag: ${env.PREV_TAG ?: '(none)'}"
+
+                        try {
+                            sh label: 'Deploy', script: '''
+                                set -eu
+                                export BACKUP_DIR KEEP_BACKUPS FORCE_BACKUP STOP_CONFLICTING_CONTAINERS ALLOW_NEW_DB_VOLUME
+
+                                # 1. Volume safety checks; works out how to mount the existing data.
+                                jenkins/scripts/db-preflight.sh "$PROD_ENV"
+
+                                # 2. Database: start it if it is not running. --no-recreate:
+                                #    an existing DB container is never replaced.
+                                "$COMPOSE" "$PROD_ENV" up -d --no-recreate --wait --wait-timeout 300 db
+
+                                # 3. Stop and remove ONLY the application containers.
+                                "$COMPOSE" "$PROD_ENV" stop data-analytics backend frontend
+                                "$COMPOSE" "$PROD_ENV" rm -f data-analytics backend frontend
+
+                                # 4. Verified backup (if migrations are pending) + migrations.
+                                jenkins/scripts/migrate.sh "$PROD_ENV"
+
+                                # 5. Start the new version and wait until it is healthy.
+                                "$COMPOSE" "$PROD_ENV" up -d --no-deps --wait --wait-timeout 300 \
+                                    data-analytics backend frontend
+
+                                # 6. Read-only smoke tests against production.
+                                jenkins/tests/func_test.sh "$PROD_ENV"
+                                docker ps --filter "label=com.docker.compose.project=$PROD_PROJECT"
+                            '''
+                        } catch (err) {
+                            sh label: 'Production logs', script: '"$COMPOSE" "$PROD_ENV" logs --no-color --tail=150 || true'
+                            if (env.PREV_TAG && env.PREV_TAG != env.DOCKER_TAG) {
+                                echo "Deploy failed. Rolling the app containers back to ${env.PREV_TAG} (database untouched)."
+                                sh label: 'Rollback', script: '''
+                                    set -eu
+                                    sed "s/^DOCKER_TAG=.*/DOCKER_TAG='${PREV_TAG}'/" "$PROD_ENV" > "${PROD_ENV}.rollback"
+                                    "$COMPOSE" "${PROD_ENV}.rollback" up -d --no-deps --wait --wait-timeout 300 \
+                                        data-analytics backend frontend || true
+                                '''
+                            }
+                            throw err
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script { cleanupCiStacks() }
+            sh label: 'Image housekeeping', script: '''
+                docker image rm "$BE_VALIDATE_IMG" "$AN_VALIDATE_IMG" >/dev/null 2>&1 || true
+                # Keep the 3 newest build tags per image (rollback targets).
+                # No -f: images used by a container are never removed.
+                for svc in fe be analytics; do
+                    repo="${IMAGE_PREFIX}${APP_NAME}-${svc}"
+                    docker images "$repo" --format '{{.Tag}}' \
+                      | grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+$' | sort -t. -k3,3nr | tail -n +4 \
+                      | xargs -r -I{} docker image rm "$repo:{}" >/dev/null 2>&1 || true
+                done
+            '''
+        }
+    }
+}

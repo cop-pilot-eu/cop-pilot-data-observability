@@ -1,0 +1,102 @@
+// Stop cop-pilot-data-observability on the agent.
+//
+// DATA IS NEVER DELETED: this pipeline has no `down -v`, `volume rm` or
+// `volume prune`. The DB volume is `external` in the compose file, so compose
+// could not remove it anyway. Running jenkins/Jenkinsfile again brings the stack
+// back with all data intact. Deleting the data is deliberately a manual step
+// (see jenkins/README.md).
+pipeline {
+    agent {
+        node {
+            label 'bml-observability-components'
+        }
+    }
+
+    options {
+        disableConcurrentBuilds()
+        timeout(time: 20, unit: 'MINUTES')
+    }
+
+    parameters {
+        booleanParam(name: 'STOP_DATABASE', defaultValue: true,
+               description: 'Also stop the TimescaleDB container (cleanly; the data volume is kept). Untick to stop only frontend/backend/data-analytics.')
+        booleanParam(name: 'REMOVE_IMAGES', defaultValue: true,
+               description: 'Remove the application images from the agent (the database image is kept)')
+    }
+
+    environment {
+        APP_NAME     = "cop-pilot-data-observability"
+        IMAGE_PREFIX = "cop-pilot-eu/"
+        PROD_PROJECT = "cop-pilot-data-observability"
+        KILL_ENV     = "${env.WORKSPACE}/.ci/kill.env"
+        COMPOSE      = "jenkins/scripts/compose.sh"
+    }
+
+    stages {
+        // ****************
+        // *** KILL APP ***
+        // ****************
+        stage('Kill_Application') {
+            steps {
+                sh '''
+                    set -eu
+                    chmod +x jenkins/scripts/*.sh
+                    mkdir -p "$(dirname "$KILL_ENV")"
+                    # Placeholder values only satisfy compose interpolation;
+                    # stop/down find containers by project label.
+                    cat > "$KILL_ENV" <<EOF
+COMPOSE_PROJECT_NAME='${PROD_PROJECT}'
+DOCKER_TAG='unused'
+IMAGE_PREFIX='${IMAGE_PREFIX}'
+DB_VOLUME='unused'
+DB_NAME='unused'
+DB_USERNAME='unused'
+DB_PASSWORD='unused'
+FRONTEND_URL='unused'
+NOTIFY_BASE_URL='unused'
+USE_PORTS='true'
+EOF
+                    echo "***** Stopping application containers *****"
+                    "$COMPOSE" "$KILL_ENV" stop frontend backend data-analytics
+                    "$COMPOSE" "$KILL_ENV" rm -f frontend backend data-analytics
+                '''
+            }
+        }
+
+        stage('Stop_Database') {
+            when {
+                expression { return params.STOP_DATABASE }
+            }
+            steps {
+                echo "***** Stopping TimescaleDB cleanly (data volume is kept) *****"
+                // `down` without -v: removes containers + network only. The
+                // external volume is never touched.
+                sh '"$COMPOSE" "$KILL_ENV" down --remove-orphans --timeout 120'
+            }
+        }
+
+        stage('Remove_Images') {
+            when {
+                expression { return params.REMOVE_IMAGES }
+            }
+            steps {
+                echo "***** Removing application images *****"
+                sh '''
+                    for svc in fe be analytics; do
+                        docker images -q "${IMAGE_PREFIX}${APP_NAME}-${svc}" | sort -u | xargs -r docker image rm -f || true
+                    done
+                '''
+            }
+        }
+
+        stage('Status') {
+            steps {
+                sh '''
+                    docker ps -a --filter "label=com.docker.compose.project=$PROD_PROJECT"
+                    echo "Database volumes on this agent (untouched):"
+                    docker volume ls --format '{{.Name}}' | grep -Ei 'timescale|observab' || true
+                '''
+            }
+        }
+    }
+}
