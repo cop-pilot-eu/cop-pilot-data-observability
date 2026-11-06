@@ -93,3 +93,5 @@ class StatsResponse(CamelCaseModel):
     data_drift_summary: Optional[list[DataDriftSummary]] = None
     latency_distribution_report: Optional[list[LatencyDistributionReport]] = None
     response_times_report: Optional[list[ResponseTimesReport]] = None
+    # Why the reports are empty, e.g. reference range not complete yet.
+    message: str | None = None

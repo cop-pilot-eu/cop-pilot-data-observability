@@ -93,5 +93,6 @@ declare global {
     dataDriftSummary: DataDriftSummaryItemAPI[];
     latencyDistributionReport: LatencyDistributionReportItemAPI[];
     responseTimesReport: ResponseTimesReportItemAPI[];
+    message?: string;
   };
 }

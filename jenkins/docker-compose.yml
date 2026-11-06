@@ -49,6 +49,11 @@ services:
     build:
       context: ../data-analytics
     image: ${IMAGE_PREFIX}cop-pilot-data-observability-analytics:${DOCKER_TAG:?DOCKER_TAG must be set}
+    # App settings owned by the developers (edit + commit). Values under
+    # `environment:` below take precedence, so connection settings stay
+    # under pipeline control.
+    env_file:
+      - config/data-analytics.env
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
@@ -70,6 +75,8 @@ services:
     build:
       context: ../backend
     image: ${IMAGE_PREFIX}cop-pilot-data-observability-be:${DOCKER_TAG}
+    env_file:
+      - config/backend.env
     environment:
       APP_NAME: cop-pilot-data-observability-be
       NODE_ENV: production

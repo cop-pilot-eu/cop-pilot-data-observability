@@ -25,7 +25,9 @@
     "migration:run:prod": "typeorm -d dist/ormconfig.js migration:run",
     "migration:revert": "npm run typeorm migration:revert",
     "migration:generate": "npm run typeorm migration:generate --",
-    "migration:show": "npm run typeorm migration:show"
+    "migration:show": "npm run typeorm migration:show",
+    "context_history_1m:backfill": "node -r ts-node/register -r tsconfig-paths/register src/scripts/context_history_1m_backfill.ts",
+    "context_history_1m:backfill:prod": "node dist/scripts/context_history_1m_backfill.js"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.1",

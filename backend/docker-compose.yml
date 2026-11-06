@@ -3,7 +3,7 @@ version: "3.9"
 services:
   timescale-db:
     platform: linux/amd64
-    image: timescale/timescaledb:2.25.0-pg18
+    image: timescale/timescaledb:2.31.0-pg18
     hostname: timescale-db
     container_name: db-timescale
     healthcheck:
@@ -24,7 +24,7 @@ services:
     networks:
       - default
     volumes:
-      - timescale_data:/var/lib/postgresql/data
+      - timescale_data:/var/lib/postgresql
 
 volumes:
   timescale_data: ~

@@ -142,4 +142,25 @@ describe('isOurs', () => {
       }),
     ).toBe(false);
   });
+
+  it('keeps untagged (prod) and tagged (dev) deployments apart', () => {
+    expect(subscriptionMarker(v2Broker, 'Digester')).toBe(
+      'suite5-cop-pilot:cluster3e-uc3:Digester',
+    );
+    expect(subscriptionMarker(ldBroker, 'Widget')).toBe(
+      'urn:ngsi-ld:Subscription:suite5:test-ld:Widget',
+    );
+    for (const [broker, type] of [
+      [v2Broker, 'Digester'],
+      [ldBroker, 'Widget'],
+    ] as const) {
+      const key = broker.ngsi === 'ld' ? 'id' : 'description';
+      const prod = { [key]: subscriptionMarker(broker, type) };
+      const dev = { [key]: subscriptionMarker(broker, type, 'dev') };
+      expect(isOurs(broker, prod)).toBe(true);
+      expect(isOurs(broker, dev)).toBe(false);
+      expect(isOurs(broker, dev, 'dev')).toBe(true);
+      expect(isOurs(broker, prod, 'dev')).toBe(false);
+    }
+  });
 });

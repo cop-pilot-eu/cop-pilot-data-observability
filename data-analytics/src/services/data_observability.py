@@ -4,95 +4,107 @@ import nannyml as nml
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
+from pandas.tseries.frequencies import to_offset
 from scipy import stats
+
+from ..config import Config
 
 
 class DataObservability:
-    CHUNK_NUMBER = 10
     BIN_SIZE = 10
     TIME_COL = "time"
     OBSERVED_TIME_COL = "observed_at"
+    LATENCY_COL = "latency_ms"
+    STD_SUFFIX = "_std"
+    COUNT_SUFFIX = "_count"
 
-    def __init__(self, data_source: pd.DataFrame, data_reference: pd.DataFrame) -> None:
-        self.dataframe_analysis = self._data_preprocessing(data_source)
-        self.dataframe_reference = self._data_preprocessing(data_reference)
-        self.dataframe_analysis_source = data_source
-        self.dataframe_reference_source = data_reference
+    def __init__(
+        self,
+        data_source: pd.DataFrame,
+        data_reference: pd.DataFrame,
+        interval: pd.Timedelta | None = None,
+        analysis_range: tuple | None = None,
+        reference_range: tuple | None = None,
+    ) -> None:
+        """
+        interval: one slot of the data (the bucket for resampled data, the native interval for raw data).
+        *_range: [start, end) the data was read for. Without them, the data's own first/last timestamps are used.
+        """
+        self.dataframe_analysis = self._data_preprocessing(self._with_latency(data_source))
+        self.dataframe_reference = self._data_preprocessing(self._with_latency(data_reference))
+        self.interval = interval
+        self.analysis_range = analysis_range
+        self.reference_range = reference_range
+        # All features feed drift; resampled data adds <attr>_std / <attr>_count next to each attribute
         self.feature_names = [
-            col for col in self.dataframe_reference.columns if col not in [self.TIME_COL, self.OBSERVED_TIME_COL]
+            col for col in self.dataframe_reference.columns if col not in [self.OBSERVED_TIME_COL, self.LATENCY_COL]
         ]
+        derived_columns = {f"{col}{suffix}" for col in self.feature_names for suffix in (self.STD_SUFFIX, self.COUNT_SUFFIX)}
+        self.base_feature_names = [col for col in self.feature_names if col not in derived_columns]
 
     def get_data_quality_report(self) -> dict:
         """
         Get a detailed data quality report for the given time range.
         """
-        df = self.dataframe_reference.copy()
-        ref_freq = self.detect_frequency(df, self.OBSERVED_TIME_COL)
-        # print(f"Detected frequency: {ref_freq}")
-        dataframe_analysis_resampled = self._data_time_reindexing(
-            self.dataframe_analysis, date_column=self.OBSERVED_TIME_COL, freq=ref_freq
-        )
-        dataframe_reference_resampled = self._data_time_reindexing(
-            self.dataframe_reference, date_column=self.OBSERVED_TIME_COL, freq=ref_freq
-        )
+        interval = self.interval
+        if interval is None:
+            interval = pd.Timedelta(to_offset(self.detect_frequency(self.dataframe_reference.copy(), self.OBSERVED_TIME_COL)))
+        expected = self._expected_readings(self.dataframe_reference, self.base_feature_names, interval)
+        ref_duration = self._range_duration(self.dataframe_reference, self.reference_range, interval)
+        analysis_duration = self._range_duration(self.dataframe_analysis, self.analysis_range, interval)
         ref_completeness, ref_avg_latency = self._calculate_reference_quality(
-            dataframe_reference_resampled, self.feature_names, self.TIME_COL, self.OBSERVED_TIME_COL
+            self.dataframe_reference, ref_duration, expected, self.LATENCY_COL
         )
         return self._calculate_quality(
-            dataframe_analysis_resampled,
-            self.feature_names,
-            self.TIME_COL,
-            self.OBSERVED_TIME_COL,
+            self.dataframe_analysis,
+            analysis_duration,
+            interval,
+            expected,
+            self.LATENCY_COL,
             ref_completeness,
             ref_avg_latency,
         )
 
-    @staticmethod
-    def _data_time_reindexing(dataframe: pd.DataFrame, date_column: str, freq: str = "5min") -> pd.DataFrame:
-        dataframe[date_column] = pd.to_datetime(dataframe[date_column])
-        dataframe = dataframe.set_index(date_column)
-        perfect_range = pd.date_range(start=dataframe.index.min(), end=dataframe.index.max(), freq=freq)
-        dataframe = dataframe.reindex(perfect_range)
-        dataframe.index.name = date_column
-        return dataframe.reset_index()
+    @classmethod
+    def _range_duration(cls, dataframe: pd.DataFrame, date_range: tuple | None, interval: pd.Timedelta) -> pd.Timedelta:
+        # Counted, not reindexed: an exact-match reindex drops every reading that is off the grid by clock jitter
+        if date_range is None:
+            observed_at = pd.to_datetime(dataframe[cls.OBSERVED_TIME_COL], utc=True)
+            date_range = (observed_at.min(), observed_at.max() + interval)
+        start, end = date_range
+        return end - start
 
-    @staticmethod
+    @classmethod
     def _calculate_quality(
+        cls,
         dataframe: pd.DataFrame,
-        feature_names: list,
-        time_col1: str,
-        time_col2: str,
+        duration: pd.Timedelta,
+        interval: pd.Timedelta,
+        expected: dict,
+        latency_col: str,
         ref_completeness: float,
         ref_avg_latency: float,
     ) -> dict:
-        missing_values = dataframe[feature_names].isna().sum().sum()
-        completeness = 1 - (missing_values / (len(dataframe) * len(feature_names)))
-        avg_latency_ms = (
-            (np.abs(pd.to_datetime(dataframe[time_col1]) - pd.to_datetime(dataframe[time_col2])).dt.total_seconds() * 10**3)
-            .mean()
-            .astype(int)
-        )
+        missing_values, completeness = cls._missing_readings(dataframe, duration, expected)
+        avg_latency_ms = dataframe[latency_col].mean().astype(int)
         completeness_diff_percentage = ((completeness - ref_completeness) / ref_completeness) * 100 if ref_completeness > 0 else 0
         avg_latency_diff_percentage = ((avg_latency_ms - ref_avg_latency) / ref_avg_latency) * 100 if ref_avg_latency > 0 else 0
         return {
-            "number_of_attributes": len(feature_names),
-            "number_of_records": len(dataframe),
-            "total_missing_values": missing_values.item(),
-            "completeness_%": round(completeness * 100, 2).item(),
-            "avg_latency_ms": avg_latency_ms.item(),
-            "completeness_diff_percentage": round(completeness_diff_percentage, 2).item(),
-            "avg_latency_diff_percentage": round(avg_latency_diff_percentage, 2).item(),
+            "number_of_attributes": len(expected),
+            "number_of_records": max(round(duration / interval), 1),
+            "total_missing_values": missing_values,
+            "completeness_%": round(completeness * 100, 2),
+            "avg_latency_ms": int(avg_latency_ms),
+            "completeness_diff_percentage": round(float(completeness_diff_percentage), 2),
+            "avg_latency_diff_percentage": round(float(avg_latency_diff_percentage), 2),
         }
 
-    @staticmethod
-    def _calculate_reference_quality(dataframe: pd.DataFrame, feature_names: list, time_col1: str, time_col2: str) -> dict:
-        missing_values = dataframe[feature_names].isna().sum().sum()
-        completeness = 1 - (missing_values / (len(dataframe) * len(feature_names)))
-        avg_latency_ms = (
-            (np.abs(pd.to_datetime(dataframe[time_col1]) - pd.to_datetime(dataframe[time_col2])).dt.total_seconds() * 10**3)
-            .mean()
-            .astype(int)
-        )
+    @classmethod
+    def _calculate_reference_quality(
+        cls, dataframe: pd.DataFrame, duration: pd.Timedelta, expected: dict, latency_col: str
+    ) -> tuple:
+        _, completeness = cls._missing_readings(dataframe, duration, expected)
+        avg_latency_ms = dataframe[latency_col].mean().astype(int)
         print(f"Reference Completeness: {completeness}, Reference Avg Latency (ms): {avg_latency_ms}")
         return completeness, avg_latency_ms
 
@@ -100,7 +112,7 @@ class DataObservability:
         """
         Get a detailed data quality report for the given dataset.
         """
-        df = self.dataframe_analysis[self.feature_names].copy()
+        df = self.dataframe_analysis[self.base_feature_names].copy()
         return self._calculate_feature_stats(df)
 
     @staticmethod
@@ -114,14 +126,14 @@ class DataObservability:
                 "mean": dataframe[col].mean().item() if is_numeric_dtype(dataframe[col]) else "N/A",
                 "min": dataframe[col].min().item() if is_numeric_dtype(dataframe[col]) else "N/A",
                 "max": dataframe[col].max().item() if is_numeric_dtype(dataframe[col]) else "N/A",
-                "outliers": (np.abs(stats.zscore(dataframe[col])) > 3).sum().item()
+                "outliers": (np.abs(stats.zscore(dataframe[col], nan_policy="omit")) > 3).sum().item()
                 if is_numeric_dtype(dataframe[col])
                 else "N/A",
             }
         return stats_dict
 
     def get_data_distribution_report(self) -> dict:
-        columns_to_exclude = [self.OBSERVED_TIME_COL, self.TIME_COL]
+        columns_to_exclude = [col for col in self.dataframe_reference.columns if col not in self.base_feature_names]
         reference_dist = self._calculate_data_distribution(self.dataframe_reference, self.BIN_SIZE, columns_to_exclude, None)
 
         temp_df = self.dataframe_reference.loc[:, ~self.dataframe_reference.columns.isin(columns_to_exclude)]
@@ -205,15 +217,10 @@ class DataObservability:
         return result
 
     def get_data_drift_report(self) -> tuple:
-        column_names = self.dataframe_reference.columns.to_list()
-        column_names.remove(self.OBSERVED_TIME_COL)
-        column_names.remove(self.TIME_COL)
-
         calc = nml.UnivariateDriftCalculator(
-            column_names=column_names,
+            column_names=self.feature_names,
             timestamp_column_name=self.OBSERVED_TIME_COL,
-            chunk_number=self.CHUNK_NUMBER,
-            # chunk_period="W",
+            **self._chunk_kwargs(),
         )
         calc.fit(self.dataframe_reference)
 
@@ -299,17 +306,12 @@ class DataObservability:
         return final_df.to_dict(orient="records"), drift_summary.to_dict(orient="records")
 
     def get_latency_report(self) -> tuple:
-        datetime_columns = [self.OBSERVED_TIME_COL, self.TIME_COL]
-
-        baseline_data_source = self.dataframe_reference_source.copy()
-        baseline_data_source = self._convert_to_datetime(baseline_data_source, datetime_columns)
-        baseline_data_source = self._calculate_latency(baseline_data_source, self.OBSERVED_TIME_COL, self.TIME_COL)
-
+        # One row per timestamp (not per attribute), latency column renamed to the report's field name
+        baseline_data_source = self.dataframe_reference.rename(columns={self.LATENCY_COL: "latency"})
         baseline_statistics = self._calculate_percentiles(baseline_data_source, "latency")
 
-        analysis_data_source = self.dataframe_analysis_source.copy()
-        analysis_data_source = self._convert_to_datetime(analysis_data_source, datetime_columns)
-        analysis_data_source = self._calculate_latency(analysis_data_source, self.OBSERVED_TIME_COL, self.TIME_COL)
+        analysis_data_source = self.dataframe_analysis.rename(columns={self.LATENCY_COL: "latency"})
+        analysis_data_source[self.OBSERVED_TIME_COL] = pd.to_datetime(analysis_data_source[self.OBSERVED_TIME_COL], utc=True)
 
         analysis_latency_distribution = self._calculate_data_distribution(
             dataframe=analysis_data_source, bin_size=5, columns_to_exclude=None, columns_to_include=["latency"]
@@ -330,15 +332,10 @@ class DataObservability:
         return analysis_latency_distribution.to_dict(orient="records"), analysis_data_source.to_dict(orient="records")
 
     def get_multivariate_drift_report(self) -> dict:
-        column_names = self.dataframe_reference.columns.to_list()
-        column_names.remove(self.OBSERVED_TIME_COL)
-        column_names.remove(self.TIME_COL)
-
         calc = nml.DataReconstructionDriftCalculator(
-            column_names=column_names,
+            column_names=self.feature_names,
             timestamp_column_name=self.OBSERVED_TIME_COL,
-            chunk_number=self.CHUNK_NUMBER,
-            # chunk_period="W",
+            **self._chunk_kwargs(),
         )
         calc.fit(self.dataframe_reference)
 
@@ -391,19 +388,61 @@ class DataObservability:
     ### Helper functions ###
 
     @staticmethod
+    def _chunk_kwargs() -> dict:
+        if Config.chunk_by == "period":
+            return {"chunk_period": Config.chunk_period}
+        return {"chunk_size": Config.chunk_size}
+
+    @staticmethod
     def create_json_column(df: pd.DataFrame, column_list: list) -> pd.Series:
         return df[column_list].to_dict("records")
 
-    @staticmethod
-    def _convert_to_datetime(dataframe: pd.DataFrame, datetime_columns: list) -> pd.DataFrame:
-        for col in datetime_columns:
-            dataframe[col] = pd.to_datetime(dataframe[col], utc=True)
+    @classmethod
+    def _with_latency(cls, dataframe: pd.DataFrame) -> pd.DataFrame:
+        # Resampled data carries latency_ms per bucket; raw data derives it from its two timestamps
+        if cls.LATENCY_COL in dataframe.columns:
+            return dataframe
+        dataframe = dataframe.copy()
+        observed_at = pd.to_datetime(dataframe[cls.OBSERVED_TIME_COL], utc=True)
+        received_at = pd.to_datetime(dataframe[cls.TIME_COL], utc=True)
+        dataframe[cls.LATENCY_COL] = np.abs(received_at - observed_at).dt.total_seconds() * 1000
         return dataframe
 
-    @staticmethod
-    def _calculate_latency(dataframe: pd.DataFrame, datetime_column_a: str, datetime_column_b: str) -> pd.DataFrame:
-        dataframe["latency"] = np.abs(dataframe[datetime_column_a] - dataframe[datetime_column_b]).dt.total_seconds() * 1000
-        return dataframe
+    @classmethod
+    def _expected_readings(cls, reference: pd.DataFrame, attrs: list, interval: pd.Timedelta) -> dict:
+        """
+        attr -> (readings per slot, slot length), both taken from the reference.
+        Bucketed: the median count of the non-empty buckets per bucket. Raw: one reading per the attribute's own
+        median gap, since attributes with staggered timestamps report less often than the entity as a whole.
+        """
+        expected = {}
+        for attr in attrs:
+            count_col = f"{attr}{cls.COUNT_SUFFIX}"
+            if count_col in reference.columns:
+                counts = reference[count_col]
+                expected[attr] = (float(counts[counts > 0].median()), interval)
+            else:
+                observed_at = pd.to_datetime(reference.loc[reference[attr].notna(), cls.OBSERVED_TIME_COL], utc=True)
+                gaps = observed_at.sort_values().diff()
+                gaps = gaps[gaps > pd.Timedelta(0)]
+                expected[attr] = (1.0, max(gaps.median(), interval) if len(gaps) else interval)
+        return expected
+
+    @classmethod
+    def _missing_readings(cls, dataframe: pd.DataFrame, duration: pd.Timedelta, expected: dict) -> tuple:
+        # Slots without a row hold no readings, so they only add to the expected total
+        observed = expected_total = 0.0
+        for attr, (per_slot, slot) in expected.items():
+            count_col = f"{attr}{cls.COUNT_SUFFIX}"
+            if count_col in dataframe.columns:
+                counts = dataframe[count_col].fillna(0)
+            else:
+                counts = dataframe[attr].notna().astype(int)
+            attr_expected = per_slot * max(round(duration / slot), 1)
+            observed += min(counts.clip(upper=per_slot).sum(), attr_expected)
+            expected_total += attr_expected
+        missing = expected_total - observed
+        return int(round(missing)), float(1 - missing / expected_total)
 
     @staticmethod
     def _calculate_percentiles(dataframe: pd.DataFrame, column: str) -> dict:
@@ -413,13 +452,14 @@ class DataObservability:
             percentile_95 = median + 100
         return {"median": median, "percentile_95": percentile_95}
 
-    @staticmethod
-    def _data_preprocessing(dataframe: pd.DataFrame) -> pd.DataFrame:
-        pivoted_df = dataframe.pivot_table(
-            index=["entity_id", "observed_at", "time"], columns="attr_name", values="value", aggfunc="first"
-        ).reset_index()
+    @classmethod
+    def _data_preprocessing(cls, dataframe: pd.DataFrame) -> pd.DataFrame:
+        # Keyed on observed_at only, so attributes of one reading never split over differing receive times
+        index = ["entity_id", cls.OBSERVED_TIME_COL]
+        pivoted_df = dataframe.pivot_table(index=index, columns="attr_name", values="value", aggfunc="first")
         pivoted_df.columns.name = None
-        return pivoted_df.drop(columns="entity_id")
+        latency = dataframe.groupby(index)[cls.LATENCY_COL].first()
+        return pivoted_df.join(latency).reset_index().drop(columns="entity_id")
 
     @staticmethod
     def detect_frequency(dataframe: pd.DataFrame, date_column: str) -> str:

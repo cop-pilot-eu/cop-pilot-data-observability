@@ -39,4 +39,10 @@ ref_df = convert_to_dataframe(filename=args.filename2)
 result = StatsService.calculate_stats(current_df=my_df, reference_df=ref_df)
 # run as: python calculate_stats.py ./inputs/dummy_context_data.csv ./inputs/dummy_reference_set.csv
 
-print(f"Result: {result}")
+# Truncate the per-timestamp response times so the rest of the report stays readable
+RESPONSE_TIMES_PREVIEW = 2
+response_times = result.response_times_report or []
+printable = result.model_copy(update={"response_times_report": response_times[:RESPONSE_TIMES_PREVIEW]})
+
+print(f"Result: {printable}")
+print(f"response_times_report: showing {min(len(response_times), RESPONSE_TIMES_PREVIEW)} of {len(response_times)} rows")

@@ -1,6 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.config import Config
@@ -12,8 +11,3 @@ engine: AsyncEngine = create_async_engine(
 )
 
 async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-
-
-async def init_postgres_client() -> None:
-    async with engine.begin() as connection:
-        await connection.run_sync(SQLModel.metadata.create_all)

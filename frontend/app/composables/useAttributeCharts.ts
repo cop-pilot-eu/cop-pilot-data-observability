@@ -157,21 +157,26 @@ export const useAttributeCharts = (props: {
         );
 
         thresholdLimit = col?.upperThreshold;
+        const start = new Date(d.chunkStartDate);
+        const end = new Date(d.chunkEndDate);
+        // Chunk size is set in analytics (CHUNK_PERIOD / CHUNK_SIZE), not by the
+        // selected range: label sub-day chunks with time, others with date only.
+        // getTimeGroupKey: "lastHour" = dd/mm/yyyy hh:mm, "lastWeek" = dd/mm/yyyy
+        const subDay = end.getTime() - start.getTime() < 23 * 3_600_000;
         data.push({
-          time: getTimeGroupKey(
-            new Date(d.chunkEndDate),
-            props.rangeSelected.value,
-          ),
+          time: getTimeGroupKey(start, subDay ? "lastHour" : "lastWeek"),
           score: col?.value ?? 0,
+          from: getTimeGroupKey(start, "lastHour"),
+          to: getTimeGroupKey(end, "lastHour"),
         });
       });
       data.sort(
-        (a, b) => parseTimeGroupKey(a.time) - parseTimeGroupKey(b.time),
+        (a, b) => parseTimeGroupKey(a.from) - parseTimeGroupKey(b.from),
       );
     }
 
     return {
-      legend: { data: ["Drift Score", "Current"], top: "0%" },
+      legend: { data: ["Drift Score", "Current Day"], top: "0%" },
       grid: { left: "3%", right: "7%", bottom: "35%" },
       dataZoom: [
         {
@@ -188,7 +193,9 @@ export const useAttributeCharts = (props: {
         trigger: "axis",
         formatter: (params: any[]) => {
           const p = params[0];
-          return `${escapeHtml(String(p.axisValue))}<br/>${p.marker}${escapeHtml(p.seriesName)}: <b>${Number(p.value).toFixed(4)}</b>`;
+          const d = data[p.dataIndex];
+          const range = d ? `${d.from} – ${d.to}` : String(p.axisValue);
+          return `${escapeHtml(range)}<br/>${p.marker}${escapeHtml(p.seriesName)}: <b>${Number(p.value).toFixed(4)}</b>`;
         },
       },
       xAxis: {
@@ -219,6 +226,16 @@ export const useAttributeCharts = (props: {
             lineStyle: { type: "dashed", color: "#F43F5E", width: 2 },
             data: !isNil(thresholdLimit) ? [{ yAxis: thresholdLimit }] : [],
           },
+        },
+        {
+          // Ranges end at now, so the last chunk is the day still running.
+          name: "Current Day",
+          // Line, not scatter: only Bar/Line are registered in nuxt.config.ts.
+          // One non-null point, so it renders as a lone marker.
+          type: "line",
+          z: 3,
+          color: "#F97316",
+          data: data.map((d, i) => (i === data.length - 1 ? d.score : null)),
         },
       ],
     };
