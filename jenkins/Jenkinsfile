@@ -234,7 +234,9 @@ EOF
                 sh label: 'Start CI stack, migrate, run functional tests', script: '''
                     set -eu
                     docker volume create --label com.cop-pilot.ci=true "$CI_DB_VOLUME" >/dev/null
-                    ALLOW_NEW_DB_VOLUME=true jenkins/scripts/db-preflight.sh "$CI_ENV"
+                    # Never stop anything from the CI stage, whatever the build parameters say.
+                    ALLOW_NEW_DB_VOLUME=true STOP_CONFLICTING_CONTAINERS=false \
+                        jenkins/scripts/db-preflight.sh "$CI_ENV"
                     "$COMPOSE" "$CI_ENV" up -d --wait --wait-timeout 300 db
                     SKIP_BACKUP=true jenkins/scripts/migrate.sh "$CI_ENV"
                     "$COMPOSE" "$CI_ENV" up -d --no-deps --wait --wait-timeout 300 data-analytics backend frontend

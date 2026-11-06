@@ -128,14 +128,20 @@ while read -r cid; do
 done < <(docker ps -a -q --filter "volume=${DB_VOLUME}")
 
 # ---------------------------------------------------------------------------
-# 4. Foreign containers holding our host ports
+# 4. Foreign containers holding our host ports (production stack only)
 # ---------------------------------------------------------------------------
-for port in ${FRONTEND_PORT:-} ${BACKEND_PORT:-}; do
-  while read -r cid; do
-    [[ -z "$cid" ]] && continue
-    is_ours "$cid" || conflicts+=("$cid")
-  done < <(docker ps -q --filter "publish=${port}")
-done
+# Only a stack that publishes ports (USE_PORTS=true in its env file) can clash
+# on them. The CI stack publishes none. FRONTEND_PORT/BACKEND_PORT are also
+# Jenkins parameters, so they are in the environment of every stage; without
+# this guard the CI check would flag the running production stack.
+if [[ "${USE_PORTS:-false}" == "true" ]]; then
+  for port in ${FRONTEND_PORT:-} ${BACKEND_PORT:-}; do
+    while read -r cid; do
+      [[ -z "$cid" ]] && continue
+      is_ours "$cid" || conflicts+=("$cid")
+    done < <(docker ps -q --filter "publish=${port}")
+  done
+fi
 
 # A conflicting container from another compose project (e.g. a stack that
 # was deployed by hand) takes the rest of that project with it, so no orphan
