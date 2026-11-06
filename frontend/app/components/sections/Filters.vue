@@ -8,6 +8,7 @@ const props = withDefaults(
     brokersList: SelectOptionAPI[];
     lastUpdate: Date | undefined;
     error: string | undefined;
+    loading?: boolean;
   }>(),
   {
     entityList: () => [],
@@ -30,10 +31,21 @@ const formattedLastUpdate = computed(() => {
   return `${dd}/${mm}/${yy} ${hh}:${min}:${ss}`;
 });
 
+// Dropdown grows past the trigger to show full names, capped by the viewport.
+const selectUi = {
+  content: "min-w-fit max-w-(--reka-select-content-available-width)",
+};
+// Hover tooltip with the full name of a truncated selection.
+const clusterTitle = computed(
+  () => props.clustersList.find((c) => c.value === cluster.value)?.title,
+);
+const brokerTitle = computed(
+  () => props.brokersList.find((b) => b.value === broker.value)?.title,
+);
+
 const emit = defineEmits(["loadData", "loadBrokerData", "loadEntityData"]);
 
 const itemsRange = ref<{ label: string; value: RangeOption }[]>([
-  { label: "Last Hour", value: "lastHour" },
   { label: "Last 24 Hours", value: "lastDay" },
   { label: "Last Week", value: "lastWeek" },
   { label: "All time", value: "allTime" },
@@ -42,7 +54,7 @@ const itemsRange = ref<{ label: string; value: RangeOption }[]>([
 const cluster = ref<string | undefined>(undefined);
 const broker = ref<string | undefined>(undefined);
 const entity = ref<string | undefined>(undefined);
-const range = ref<RangeOption>("allTime");
+const range = ref<RangeOption>("lastDay");
 
 // Clearing the child selections lets the list watchers below auto-select
 // the first option of the freshly loaded lists.
@@ -57,7 +69,33 @@ const loadEntityData = () => {
   emit("loadEntityData", broker.value);
 };
 
+// Selection last sent to the backend. View is highlighted while the
+// current selection differs from it, i.e. the dashboard is out of date.
+const applied = ref<{
+  cluster?: string;
+  broker?: string;
+  entity?: string;
+  range: RangeOption;
+}>();
+const canView = computed(
+  () => !isNil(cluster.value) && !isNil(broker.value) && !isNil(entity.value),
+);
+const dirty = computed(
+  () =>
+    !applied.value ||
+    applied.value.cluster !== cluster.value ||
+    applied.value.broker !== broker.value ||
+    applied.value.entity !== entity.value ||
+    applied.value.range !== range.value,
+);
+
 const loadData = () => {
+  applied.value = {
+    cluster: cluster.value,
+    broker: broker.value,
+    entity: entity.value,
+    range: range.value,
+  };
   emit("loadData", cluster.value, broker.value, entity.value, range.value);
 };
 
@@ -94,7 +132,6 @@ watch(
     }
     if (isNil(entity.value) && !isNil(broker.value)) {
       entity.value = newEntities[0];
-      loadData();
     }
   },
   { immediate: true },
@@ -102,44 +139,30 @@ watch(
 </script>
 
 <template>
-  <div class="flex flex-col 2xl:flex-row gap-4 py-4">
-    <div class="flex flex-wrap items-center gap-4 2xl:shrink-0">
+  <div class="space-y-3 py-4">
+    <p class="text-primary-800 text-sm">
+      Last update:
+      <span class="text-primary-600 font-semibold">{{
+        formattedLastUpdate ?? "—"
+      }}</span>
+    </p>
+
+    <!-- One wrapping row: growing selects fill each line, so wrapped lines stay aligned. -->
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
       <div class="flex items-center gap-x-2">
         <p class="text-primary-800 text-sm whitespace-nowrap">Select period</p>
-        <USelect
-          v-model="range"
-          :items="itemsRange"
-          class="w-40"
-          @update:model-value="loadData"
-        />
+        <USelect v-model="range" :items="itemsRange" class="w-40" />
       </div>
 
-      <div class="flex items-center gap-x-2">
-        <p class="text-primary-800 text-sm">
-          Last update:
-          <span class="text-primary-600 font-semibold">{{
-            formattedLastUpdate ?? "—"
-          }}</span>
-        </p>
-        <UButton
-          label="Reload data"
-          icon="heroicons:arrow-path"
-          color="neutral"
-          variant="outline"
-          size="xs"
-          @click="loadData"
-        />
-      </div>
-    </div>
-
-    <div class="flex flex-1 flex-wrap items-center gap-4 pl-8">
-      <div class="flex flex-1 min-w-64 items-center gap-x-2 justify-end">
+      <div class="flex flex-1 min-w-72 items-center gap-x-2">
         <p class="text-primary-800 text-sm whitespace-nowrap">Select cluster</p>
         <USelect
           v-model="cluster"
           :items="clustersList"
           label-key="title"
-          class="flex-1 min-w-0 max-w-2xl"
+          class="flex-1 min-w-0"
+          :ui="selectUi"
+          :title="clusterTitle"
           :disabled="error !== undefined"
           @update:modelValue="loadBrokerData"
         />
@@ -153,22 +176,34 @@ watch(
           label-key="title"
           placeholder="No brokers"
           class="w-44"
+          :ui="selectUi"
+          :title="brokerTitle"
           :disabled="error !== undefined || brokersList.length === 0"
           @update:modelValue="loadEntityData"
         />
       </div>
 
-      <div class="flex items-center gap-x-2">
+      <div class="flex flex-[1.25] min-w-80 items-center gap-x-2">
         <p class="text-primary-800 text-sm whitespace-nowrap">Select entity</p>
         <USelect
           v-model="entity"
           :items="entityList"
           placeholder="No entities"
-          class="w-72"
+          class="flex-1 min-w-0"
+          :ui="selectUi"
+          :title="entity"
           :disabled="error !== undefined || entityList.length === 0"
-          @update:modelValue="loadData"
         />
       </div>
+
+      <UButton
+        label="View"
+        icon="heroicons:eye"
+        :variant="dirty ? 'solid' : 'outline'"
+        :disabled="!canView"
+        :loading="loading"
+        @click="loadData"
+      />
     </div>
   </div>
 </template>

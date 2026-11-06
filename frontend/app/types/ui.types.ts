@@ -57,5 +57,8 @@ declare global {
   type AttributeDistributionLineChartUI = {
     time: string;
     score: number;
+    // chunk bounds (dd/mm/yyyy hh:mm) for the tooltip; `time` is the axis label
+    from: string;
+    to: string;
   };
 }
