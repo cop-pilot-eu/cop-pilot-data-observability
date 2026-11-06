@@ -55,7 +55,7 @@ pipeline {
     options {
         // Never let two commits deploy at the same time.
         disableConcurrentBuilds()
-        timeout(time: 90, unit: 'MINUTES')
+        timeout(time: 240, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '30'))
     }
 
@@ -87,6 +87,8 @@ pipeline {
         string(name: 'KEEP_BACKUPS', defaultValue: '10', description: 'Number of DB backups to keep')
         booleanParam(name: 'FORCE_BACKUP', defaultValue: false,
                description: 'Take a DB backup on this deploy even if there are no pending migrations')
+        booleanParam(name: 'RUN_1M_BACKFILL', defaultValue: false,
+               description: 'One-off: after the deploy, run the context_history_1m backfill (backend/src/scripts/context_history_1m_backfill.ts) with the new image. Safe to re-run.')
         booleanParam(name: 'STRICT_LINT', defaultValue: false, description: 'Fail the build on lint findings (default: mark UNSTABLE)')
     }
 
@@ -309,6 +311,34 @@ EOF
                             throw err
                         }
                     }
+                }
+            }
+        }
+        // ********************************************
+        // *** ONE-OFF: context_history_1m BACKFILL ***
+        // ********************************************
+        // Runs only when RUN_1M_BACKFILL is ticked. Uses the image that was just
+        // deployed, against the production DB, while the app keeps running.
+        // The script refreshes the continuous aggregate one 7-day chunk at a
+        // time, so it is safe to re-run.
+        stage('Backfill_1m') {
+            when {
+                allOf {
+                    environment name: 'DEPLOY', value: 'true'
+                    expression { return params.RUN_1M_BACKFILL }
+                }
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${DB_CREDS_ID}",
+                                                  usernameVariable: 'DB_USERNAME', passwordVariable: 'DB_PASSWORD')]) {
+                    sh label: 'context_history_1m backfill', script: """
+                        set -eu
+                        "\$COMPOSE" "\$PROD_ENV" run --rm --no-deps -T --entrypoint sh backend -c 'test -f dist/scripts/context_history_1m_backfill.js' || {
+                            echo "This image has no dist/scripts/context_history_1m_backfill.js (is the resampling code on this branch?)"
+                            exit 1
+                        }
+                        "\$COMPOSE" "\$PROD_ENV" run --rm --no-deps -T backend node dist/scripts/context_history_1m_backfill.js
+                    """.stripIndent()
                 }
             }
         }
