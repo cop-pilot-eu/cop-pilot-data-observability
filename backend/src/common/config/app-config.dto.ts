@@ -1,5 +1,11 @@
 import { Expose, Type } from 'class-transformer';
-import { IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Matches,
+} from 'class-validator';
 
 export class AppConfigDTO {
   @IsString()
@@ -33,6 +39,14 @@ export class AppConfigDTO {
   @IsString()
   @Expose({ name: 'NOTIFY_BASE_URL' })
   public readonly notifyBaseUrl!: string;
+
+  // Namespaces subscription markers so a second deployment (dev) on the same
+  // brokers never reconciles away prod's subscriptions. Empty in prod. No `:`
+  // allowed — it is the marker separator.
+  @IsOptional()
+  @Matches(/^[a-z0-9-]*$/)
+  @Expose({ name: 'SUBSCRIPTION_TAG' })
+  public readonly subscriptionTag: string = '';
 
   @IsOptional()
   @IsIn(['true', 'false'])

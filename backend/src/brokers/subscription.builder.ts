@@ -69,6 +69,7 @@ export function buildSubscriptionBody(
   broker: BrokerConfig,
   entityType: string,
   notifyUrl: string,
+  tag = '',
 ): NgsiLdSubscriptionBody | NgsiV2SubscriptionBody {
   const config = broker.entityTypes[entityType] as Extract<
     EntityTypeConfig,
@@ -85,7 +86,7 @@ export function buildSubscriptionBody(
         : config.fields,
     ),
   ];
-  const marker = subscriptionMarker(broker, entityType);
+  const marker = subscriptionMarker(broker, entityType, tag);
 
   if (broker.ngsi === 'ld') {
     return {
@@ -107,46 +108,55 @@ export function buildSubscriptionBody(
 }
 
 /**
- * Ownership marker. LD: deterministic id
- * `urn:ngsi-ld:Subscription:suite5:<brokerId>:<EntityType>`. v2: `description`
- * field `suite5-cop-pilot:<brokerId>:<EntityType>` — v2 subscriptions have no
- * deterministic id, the broker assigns it, so `description` is the marker.
+ * Ownership marker prefix. LD: deterministic id
+ * `urn:ngsi-ld:Subscription:suite5:<brokerId>:`. v2: `description` field
+ * `suite5-cop-pilot:<brokerId>:` — v2 subscriptions have no deterministic id,
+ * the broker assigns it, so `description` is the marker.
+ *
+ * `tag` (SUBSCRIPTION_TAG) namespaces a second deployment on the same brokers,
+ * e.g. `dev` gives `suite5-dev:` / `suite5-cop-pilot-dev:`. Untagged prefixes
+ * end in `:` right after the base, tagged in `-<tag>:`, so neither deployment
+ * matches the other's subscriptions and reconcile never takes them over.
+ * Empty tag = the original markers, so prod needs no change.
  */
+function markerPrefix(broker: BrokerConfig, tag: string): string {
+  const suffix = tag ? `-${tag}` : '';
+  return broker.ngsi === 'ld'
+    ? `urn:ngsi-ld:Subscription:suite5${suffix}:${broker.id}:`
+    : `suite5-cop-pilot${suffix}:${broker.id}:`;
+}
+
 export function subscriptionMarker(
   broker: BrokerConfig,
   entityType: string,
+  tag = '',
 ): string {
-  return broker.ngsi === 'ld'
-    ? `urn:ngsi-ld:Subscription:suite5:${broker.id}:${entityType}`
-    : `suite5-cop-pilot:${broker.id}:${entityType}`;
+  return `${markerPrefix(broker, tag)}${entityType}`;
 }
 
 /**
  * True iff `subscription`'s id (LD) or `description` (v2) matches
- * `subscriptionMarker` for some entity type on `broker`. Never touch a
- * subscription that fails this check — not ours to
- * delete, recreate, or otherwise act on.
+ * `subscriptionMarker` for some entity type on `broker` and the same `tag`.
+ * Never touch a subscription that fails this check — not ours to delete,
+ * recreate, or otherwise act on.
  *
  * Prefix match, not exact match against the current registry's type set
  * also recognises an orphan
  * left by an earlier deploy whose type has since been removed from the
  * registry, so it doesn't keep delivering unnoticed forever.
  */
-export function isOurs(broker: BrokerConfig, subscription: unknown): boolean {
+export function isOurs(
+  broker: BrokerConfig,
+  subscription: unknown,
+  tag = '',
+): boolean {
   if (typeof subscription !== 'object' || subscription === null) return false;
   const { id, description } = subscription as {
     id?: unknown;
     description?: unknown;
   };
-
-  if (broker.ngsi === 'ld') {
-    return (
-      typeof id === 'string' &&
-      id.startsWith(`urn:ngsi-ld:Subscription:suite5:${broker.id}:`)
-    );
-  }
+  const marker = broker.ngsi === 'ld' ? id : description;
   return (
-    typeof description === 'string' &&
-    description.startsWith(`suite5-cop-pilot:${broker.id}:`)
+    typeof marker === 'string' && marker.startsWith(markerPrefix(broker, tag))
   );
 }

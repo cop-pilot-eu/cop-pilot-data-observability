@@ -145,7 +145,8 @@ export class BrokerSyncService implements OnApplicationBootstrap {
       'GET',
       '/subscriptions',
     );
-    const ours = subscriptions.filter((sub) => isOurs(broker, sub));
+    const tag = this.appConfig.subscriptionTag;
+    const ours = subscriptions.filter((sub) => isOurs(broker, sub, tag));
 
     for (const [entityType, config] of Object.entries(broker.entityTypes)) {
       const existing = ours.find(
@@ -166,7 +167,7 @@ export class BrokerSyncService implements OnApplicationBootstrap {
 
       if (existing) this.logHealth(broker, entityType, existing);
 
-      const desired = buildSubscriptionBody(broker, entityType, notifyUrl);
+      const desired = buildSubscriptionBody(broker, entityType, notifyUrl, tag);
 
       if (!existing) {
         await this.request(broker, 'POST', '/subscriptions', desired);
