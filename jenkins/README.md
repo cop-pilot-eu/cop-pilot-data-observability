@@ -22,6 +22,8 @@ The stack has 4 containers in one compose project, `cop-pilot-data-observability
 | 🔁 `Jenkinsfile` | Validate → build → integration test → deploy. Runs on every push to GitHub. |
 | 🛑 `Jenkinsfile.kill` | Stops the stack. Never deletes data. |
 | 🐳 `docker-compose.yml` | Stack definition. The DB volume is `external`. |
+| ⚙️ `config/backend.env` | Backend app settings, edited by the developers (commit to change). |
+| ⚙️ `config/data-analytics.env` | Data-analytics app settings, edited by the developers (commit to change). |
 | 🔌 `docker-compose.ports.yml` | Host ports, used only by the production deployment. |
 | 🧰 `scripts/compose.sh` | Wrapper for every compose call: pins the project name and env file. |
 | 🔍 `scripts/db-preflight.sh` | DB volume safety checks; works out how to mount the existing data. |
@@ -102,7 +104,27 @@ Prepare ─► Validate (parallel) ─► Build images ─► Integration test �
 | `NOTIFY_BASE_URL` | `http://suite5-brokers-dashboard.ziti:5000` | URL the brokers call back to (the Ziti service in front of backend port 5000). Empty means `http://PUBLIC_HOST:BACKEND_PORT`. |
 | `BROKER_SYNC_ENABLED` | `true` | Production only: on every start the backend creates, recreates or deletes its broker subscriptions. The CI stack always runs with `false`, so tests never touch real broker subscriptions. |
 | `BACKUP_DIR` / `KEEP_BACKUPS` / `FORCE_BACKUP` | see [Data safety](#️-data-safety) | |
+| `RUN_1M_BACKFILL` | `false` | One-off: run the `context_history_1m` backfill after the deploy (see below). |
 | `STRICT_LINT` | `false` | |
+
+---
+
+## ⚙️ Application settings (env vars)
+
+Developers change app settings **by commit only**, never on the server:
+
+1. Edit `jenkins/config/backend.env` or `jenkins/config/data-analytics.env`: add a new variable or change a value.
+2. Commit to `main`. The pipeline tests the change in the CI stack and redeploys with the new values.
+
+Connection settings stay under pipeline control: values under `environment:` in `docker-compose.yml` take precedence over the env files. That covers `DB_*`, `POSTGRES_*`, `APP_NAME`, `NODE_ENV`, `PORT`, `FRONTEND_URL`, `DATA_ANALYTICS_URL`, `NOTIFY_BASE_URL` and `BROKER_SYNC_ENABLED`, so setting them in the env files has no effect. Change those through the Jenkins job parameters.
+
+The env files are in git, so **never put secrets in them**. Secrets go in Jenkins credentials.
+
+## 🔂 One-off: `context_history_1m` backfill
+
+`backend/src/scripts/context_history_1m_backfill.ts` fills the 1-minute continuous aggregate with history, one 7-day chunk at a time. It is safe to re-run.
+
+Run it with **Build with Parameters** → ☑ `RUN_1M_BACKFILL`. The pipeline deploys as usual, then runs the script with the newly deployed backend image against the production DB, while the app keeps running. The output lists each chunk; failed chunks fail the build and are printed for re-run.
 
 ---
 
