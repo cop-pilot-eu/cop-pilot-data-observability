@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsObject, IsOptional, ValidateNested } from 'class-validator';
+import { IsArray, IsObject, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { AttributeQualityReportDTO } from './attribute-quality-report.dto';
 import { DataDistributionReportDTO } from './data-distribution-report.dto';
 import { DataDriftReportDTO } from './data-drift-report.dto';
@@ -78,6 +78,12 @@ export class StatsResponseDTO {
   @ValidateNested({ each: true })
   @ApiProperty()
   readonly responseTimesReport?: ResponseTimesReportDTO[];
+
+  // Why the reports are empty, e.g. reference range not complete yet.
+  @IsOptional()
+  @IsString()
+  @ApiProperty({ required: false })
+  readonly message?: string;
 }
 
 export type StatsResponse = StatsResponseDTO;

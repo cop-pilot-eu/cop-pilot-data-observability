@@ -1,10 +1,12 @@
 import { Expose, Type } from 'class-transformer';
 import {
   IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
   Matches,
+  Min,
 } from 'class-validator';
 
 export class AppConfigDTO {
@@ -52,6 +54,14 @@ export class AppConfigDTO {
   @IsIn(['true', 'false'])
   @Expose({ name: 'BROKER_SYNC_ENABLED' })
   private readonly brokerSync: 'true' | 'false' = 'false';
+
+  // Length of each entity's reference range, from its first timestamp in context_history.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  @Expose({ name: 'REFERENCE_DAYS' })
+  public readonly referenceDays: number = 7;
 
   get isProduction(): boolean {
     return this.env === 'production';

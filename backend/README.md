@@ -57,6 +57,11 @@ $ yarn typeorm migration:revert
 $ yarn typeorm migration:show
 ```
 
+## Resampling and reference ranges
+
+- [docs/resampling.md](docs/resampling.md): how the backend selects the reference range of each entity and resamples fast entities to 1 minute. Setup for a new environment.
+- [docs/reference-override.md](docs/reference-override.md): how to set a manual reference range for one entity.
+
 ## Compile and run the project
 
 ```bash

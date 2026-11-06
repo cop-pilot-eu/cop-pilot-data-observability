@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { BrokerSyncService } from './brokers/broker-sync.service';
 import { AppConfig, DatabaseConfigDTO, DBConfig } from './common';
+import { EntityReferenceService } from './entity-reference/entity-reference.service';
 import { Broker, ContextHistory } from './entities';
 import { SnakeNamingStrategy } from './utils';
 
@@ -35,6 +36,6 @@ import { SnakeNamingStrategy } from './utils';
     HttpModule,
   ],
   controllers: [AppController],
-  providers: [AppService, BrokerSyncService],
+  providers: [AppService, BrokerSyncService, EntityReferenceService],
 })
 export class AppModule {}
