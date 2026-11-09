@@ -65,6 +65,40 @@ class ColumnDTO {
   @IsBoolean()
   @ApiProperty()
   readonly alert: boolean;
+
+  // The attribute's analysis values in this chunk: 'N/A' when non-numeric, null when the
+  // chunk has none, absent on the derived <attr>_std / <attr>_count columns
+  @IsOptional()
+  @ValidateIf((o: ColumnDTO) => typeof o.min === 'number')
+  @IsNumber()
+  @ValidateIf((o: ColumnDTO) => typeof o.min === 'string')
+  @IsString()
+  @ApiProperty({ required: false, nullable: true })
+  readonly min?: number | string | null;
+
+  @IsOptional()
+  @ValidateIf((o: ColumnDTO) => typeof o.max === 'number')
+  @IsNumber()
+  @ValidateIf((o: ColumnDTO) => typeof o.max === 'string')
+  @IsString()
+  @ApiProperty({ required: false, nullable: true })
+  readonly max?: number | string | null;
+
+  @IsOptional()
+  @ValidateIf((o: ColumnDTO) => typeof o.mean === 'number')
+  @IsNumber()
+  @ValidateIf((o: ColumnDTO) => typeof o.mean === 'string')
+  @IsString()
+  @ApiProperty({ required: false, nullable: true })
+  readonly mean?: number | string | null;
+
+  @IsOptional()
+  @ValidateIf((o: ColumnDTO) => typeof o.outliers === 'number')
+  @IsNumber()
+  @ValidateIf((o: ColumnDTO) => typeof o.outliers === 'string')
+  @IsString()
+  @ApiProperty({ required: false, nullable: true })
+  readonly outliers?: number | string | null;
 }
 
 export class DataDriftReportDTO {

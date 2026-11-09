@@ -69,7 +69,7 @@ const loadEntityData = () => {
   emit("loadEntityData", broker.value);
 };
 
-// Selection last sent to the backend. View is highlighted while the
+// Selection last sent to the backend. Fetch is highlighted while the
 // current selection differs from it, i.e. the dashboard is out of date.
 const applied = ref<{
   cluster?: string;
@@ -77,7 +77,7 @@ const applied = ref<{
   entity?: string;
   range: RangeOption;
 }>();
-const canView = computed(
+const canFetch = computed(
   () => !isNil(cluster.value) && !isNil(broker.value) && !isNil(entity.value),
 );
 const dirty = computed(
@@ -197,10 +197,10 @@ watch(
       </div>
 
       <UButton
-        label="View"
-        icon="heroicons:eye"
+        label="Fetch"
+        icon="heroicons:arrow-path"
         :variant="dirty ? 'solid' : 'outline'"
-        :disabled="!canView"
+        :disabled="!canFetch"
         :loading="loading"
         @click="loadData"
       />

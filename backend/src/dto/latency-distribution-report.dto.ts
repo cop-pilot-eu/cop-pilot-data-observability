@@ -1,33 +1,70 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  ValidateNested,
+} from 'class-validator';
 
-export class LatencyDistributionReportDTO {
-  @IsNotEmpty()
-  @Type(
-    /* istanbul ignore next */
-    () => String,
-  )
-  @IsString()
-  @ApiProperty()
-  readonly bin: string;
-
+export class LatencyBucketDTO {
   @IsNotEmpty()
   @Type(
     /* istanbul ignore next */
     () => Number,
   )
-  @IsArray()
-  @IsNumber({}, { each: true })
+  @IsInt()
   @ApiProperty()
-  readonly binEdges: number[];
+  readonly count: number;
 
-  @IsNotEmpty()
+  // Observed latency range in the bucket; null when it has no responses
+  @IsOptional()
   @Type(
     /* istanbul ignore next */
     () => Number,
   )
   @IsNumber()
+  @ApiProperty({ nullable: true })
+  readonly minMs: number | null;
+
+  @IsOptional()
+  @Type(
+    /* istanbul ignore next */
+    () => Number,
+  )
+  @IsNumber()
+  @ApiProperty({ nullable: true })
+  readonly maxMs: number | null;
+}
+
+// Analysis responses per bucket, split at the reference median and p95.
+export class LatencyDistributionReportDTO {
+  @Type(
+    /* istanbul ignore next */
+    () => LatencyBucketDTO,
+  )
+  @IsObject()
+  @ValidateNested()
   @ApiProperty()
-  readonly latency: number;
+  readonly normalResponse: LatencyBucketDTO;
+
+  @Type(
+    /* istanbul ignore next */
+    () => LatencyBucketDTO,
+  )
+  @IsObject()
+  @ValidateNested()
+  @ApiProperty()
+  readonly slowerThanUsualResponse: LatencyBucketDTO;
+
+  @Type(
+    /* istanbul ignore next */
+    () => LatencyBucketDTO,
+  )
+  @IsObject()
+  @ValidateNested()
+  @ApiProperty()
+  readonly unacceptablySlowResponse: LatencyBucketDTO;
 }

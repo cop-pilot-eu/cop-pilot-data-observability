@@ -34,7 +34,11 @@ describe('AppController', () => {
       brokerId: 'cluster3e-uc3',
     };
     const mockStatsResponse: StatsResponse = {
-      latencyDistributionReport: [{ bin: '1', binEdges: [1, 2], latency: 1 }],
+      latencyDistributionReport: {
+        normalResponse: { count: 3, minMs: 40, maxMs: 258 },
+        slowerThanUsualResponse: { count: 2, minMs: 259, maxMs: 936 },
+        unacceptablySlowResponse: { count: 0, minMs: null, maxMs: null },
+      },
     };
     jest
       .spyOn(mockAppService, 'retrieveStats')

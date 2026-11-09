@@ -4,25 +4,38 @@ import { isNil } from "ramda";
 const props = withDefaults(
   defineProps<{
     dataQualityReport: DataQualityReportAPI | undefined;
+    attributeQualityReport: AttributeQualityReportAPI | undefined;
     dataDriftSummary: DataDriftSummaryItemAPI[] | undefined;
     rangeSelected: RangeOption | undefined;
     loading: boolean;
   }>(),
   {
     dataQualityReport: undefined,
+    attributeQualityReport: undefined,
     dataDriftSummary: undefined,
     range: undefined,
     loading: false,
   },
 );
 
+// Drift also runs on the resampled <attr>_std / <attr>_count columns; keep only
+// the attributes themselves (the quality report's keys).
+const attributeDriftSummary = computed(() => {
+  if (isNil(props.dataDriftSummary) || isNil(props.attributeQualityReport))
+    return undefined;
+  const attributes = props.attributeQualityReport;
+  return props.dataDriftSummary.filter((el) => el.name in attributes);
+});
+
 const cardData = computed((): CardData[] => {
-  const driftTotal = isNil(props.dataDriftSummary)
+  const summary = attributeDriftSummary.value;
+  // Y = every attribute, so one without a drift result still counts
+  const driftTotal = isNil(summary)
     ? 0
-    : props.dataDriftSummary?.length;
-  const driftDetected = isNil(props.dataDriftSummary)
-    ? []
-    : props.dataDriftSummary.filter((el) => el.alert === true).length;
+    : Object.keys(props.attributeQualityReport ?? {}).length;
+  const driftDetected = isNil(summary)
+    ? 0
+    : summary.filter((el) => el.alert === true).length;
 
   const completenessDiff: number =
     props.dataQualityReport?.completenessDiffPercentage ?? 0;
@@ -47,11 +60,8 @@ const cardData = computed((): CardData[] => {
   };
 
   let tooltipText: string[] | undefined = undefined;
-  if (
-    !isNil(props.dataDriftSummary) &&
-    props.dataDriftSummary.filter((el) => el.alert === true).length > 0
-  ) {
-    let drifts = props.dataDriftSummary
+  if (!isNil(summary) && driftDetected > 0) {
+    let drifts = summary
       .filter((el: DataDriftSummaryItemAPI) => el.alert === true)
       .map((el: DataDriftSummaryItemAPI) => {
         return `${el.name}  peak drift reached at ${Math.ceil(el.value * 100) / 100}`;
@@ -63,6 +73,7 @@ const cardData = computed((): CardData[] => {
   return [
     {
       title: "Drift Detection",
+      info: "Attributes whose value distribution drifted from the reference period at least once.",
       headerIcon: undefined,
       value: driftTotal === 0 ? undefined : `${driftDetected}/${driftTotal}`,
       borderColor: getBorderColor(0),
@@ -79,6 +90,7 @@ const cardData = computed((): CardData[] => {
     },
     {
       title: "Data Completeness",
+      info: "Share of expected readings that arrived in the selected range.",
       headerIcon: "heroicons:chart-bar-solid",
       value: isNil(props.dataQualityReport?.completeness)
         ? undefined

@@ -1,9 +1,17 @@
 import { isNil } from "ramda";
 import {
   escapeHtml,
+  formatChunkRange,
   getTimeGroupKey,
-  parseTimeGroupKey,
 } from "../utils/formatters";
+
+// Round up to two significant digits, e.g. 0.1234 -> 0.13, 4.56 -> 4.6
+const niceCeil = (v: number): number => {
+  if (v <= 0) return v;
+  const step = 10 ** (Math.floor(Math.log10(v)) - 1);
+  // toFixed drops float noise (0.1 * 1.1 = 0.11000000000000001) before the ceil
+  return Number((Math.ceil(Number((v / step).toFixed(6))) * step).toPrecision(2));
+};
 
 export const useAttributeCharts = (props: {
   attributeQualityReport: Ref<AttributeQualityReportAPI | undefined>;
@@ -38,9 +46,15 @@ export const useAttributeCharts = (props: {
       Object.keys(props.attributeQualityReport.value).forEach((key: string) => {
         if (isNil(props.attributeQualityReport.value)) return;
         const obj = props.attributeQualityReport.value[key];
-        const total = obj?.count ?? 0;
+        // `count` is pandas .count(): non-null values only, so rows = count + missing
+        const observed = obj?.count ?? 0;
         const missing = obj?.missing ?? 0;
-        data.push({ attribute: key, valid: total - missing, missing, total });
+        data.push({
+          attribute: key,
+          observed,
+          missing,
+          total: observed + missing,
+        });
       });
     }
 
@@ -61,12 +75,16 @@ export const useAttributeCharts = (props: {
           return `${escapeHtml(String(params[0].axisValue))}<br/>${lines.join("<br/>")}`;
         },
       },
-      legend: { data: ["Valid", "Missing"], top: "top" },
+      legend: { data: ["Observed", "Missing"], top: "top" },
       grid: { left: "3%", right: "3%", bottom: "20%" },
       xAxis: {
         type: "value",
         name: "Volume",
         nameLocation: "center",
+        // End at the largest total; ECharts' nice rounding would run past it (2k -> 2.5k)
+        ...(data.length > 0 && {
+          max: Math.max(...data.map((d) => d.total)) || undefined,
+        }),
         splitLine: { show: true, lineStyle: { type: "dashed" } },
       },
       yAxis: {
@@ -79,12 +97,12 @@ export const useAttributeCharts = (props: {
       },
       series: [
         {
-          name: "Valid",
+          name: "Observed",
           type: "bar",
           stack: "total",
           barWidth: "60%",
           color: "#10B981",
-          data: data.map((d) => d.valid),
+          data: data.map((d) => d.observed),
           itemStyle: { borderRadius: 4 },
         },
         {
@@ -144,14 +162,14 @@ export const useAttributeCharts = (props: {
   });
 
   const lineChartOptions = computed(() => {
-    let data: AttributeDistributionLineChartUI[] = [];
+    const data: AttributeDistributionLineChartUI[] = [];
     let thresholdLimit: number | undefined = undefined;
 
     if (
       !isNil(props.dataDriftReport.value) &&
       !isNil(attributeSelected.value)
     ) {
-      props.dataDriftReport.value?.forEach((d: DataDriftReportItemAPI) => {
+      for (const d of props.dataDriftReport.value) {
         const col = d.columns.find(
           (c: DriftColumnAPI) => c.name === attributeSelected.value,
         );
@@ -166,14 +184,20 @@ export const useAttributeCharts = (props: {
         data.push({
           time: getTimeGroupKey(start, subDay ? "lastHour" : "lastWeek"),
           score: col?.value ?? 0,
-          from: getTimeGroupKey(start, "lastHour"),
-          to: getTimeGroupKey(end, "lastHour"),
+          startMs: start.getTime(),
+          range: formatChunkRange(start, end),
         });
-      });
-      data.sort(
-        (a, b) => parseTimeGroupKey(a.from) - parseTimeGroupKey(b.from),
-      );
+      }
+      data.sort((a, b) => a.startMs - b.startMs);
     }
+
+    // ECharts sizes the axis from the series data only, so a threshold above
+    // every score would sit off-chart: lift the max to just above it.
+    const maxScore = Math.max(0, ...data.map((d) => d.score));
+    const yAxisMax =
+      !isNil(thresholdLimit) && thresholdLimit >= maxScore
+        ? niceCeil(thresholdLimit * 1.1)
+        : undefined;
 
     return {
       legend: { data: ["Drift Score", "Current Day"], top: "0%" },
@@ -194,7 +218,7 @@ export const useAttributeCharts = (props: {
         formatter: (params: any[]) => {
           const p = params[0];
           const d = data[p.dataIndex];
-          const range = d ? `${d.from} – ${d.to}` : String(p.axisValue);
+          const range = d ? d.range : String(p.axisValue);
           return `${escapeHtml(range)}<br/>${p.marker}${escapeHtml(p.seriesName)}: <b>${Number(p.value).toFixed(4)}</b>`;
         },
       },
@@ -208,6 +232,7 @@ export const useAttributeCharts = (props: {
         type: "value",
         name: "Drift Score",
         nameLocation: "center",
+        ...(yAxisMax !== undefined && { max: yAxisMax }),
       },
       series: [
         {

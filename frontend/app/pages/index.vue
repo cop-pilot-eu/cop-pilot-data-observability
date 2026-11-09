@@ -120,6 +120,7 @@ const loadStats = async (
       <template v-else-if="loading || dataResponse || errorStats">
         <CardContainer
           :data-quality-report="dataResponse?.dataQualityReport"
+          :attribute-quality-report="dataResponse?.attributeQualityReport"
           :data-drift-summary="dataResponse?.dataDriftSummary"
           :range-selected="rangeSelected"
           :loading="loading"
@@ -151,7 +152,7 @@ const loadStats = async (
         v-else
         class="flex flex-col items-center justify-center py-12 text-neutral-400"
       >
-        <p class="text-base">Pick cluster, broker and entity, then press View</p>
+        <p class="text-base">Pick cluster, broker and entity, then press Fetch</p>
       </div>
     </div>
   </div>

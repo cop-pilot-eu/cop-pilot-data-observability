@@ -6,19 +6,34 @@ import {
 } from "../utils/formatters";
 
 export const useLatencyCharts = (props: {
-  latencyDistributionReport: Ref<
-    LatencyDistributionReportItemAPI[] | undefined
-  >;
+  latencyDistributionReport: Ref<LatencyDistributionReportAPI | undefined>;
   responseTimesReport: Ref<ResponseTimesReportItemAPI[] | undefined>;
   rangeSelected: Ref<RangeOption | undefined>;
 }) => {
+  // Buckets split at the reference median and p95; colors match the Response Time lines
   const barData = computed<LatencyBarChartUI[]>(() => {
-    if (isNil(props.latencyDistributionReport.value)) return [];
-    return props.latencyDistributionReport.value.map((item) => ({
-      range: item.bin + " ms",
-      count: item.latency,
-    }));
+    const report = props.latencyDistributionReport.value;
+    if (isNil(report)) return [];
+    return [
+      {
+        label: "Expected Response Time",
+        color: "#10B981",
+        ...report.normalResponse,
+      },
+      {
+        label: "Slower Than Usual",
+        color: "#F59E0B",
+        ...report.slowerThanUsualResponse,
+      },
+      {
+        label: "Unacceptably Slow",
+        color: "#F43F5E",
+        ...report.unacceptablySlowResponse,
+      },
+    ];
   });
+
+  const formatMs = (ms: number): string => `${Math.round(ms)} ms`;
 
   const lineDataTransformed = computed<LatencyLineChartUI[]>(() => {
     if (isNil(props.responseTimesReport.value)) return [];
@@ -54,12 +69,25 @@ export const useLatencyCharts = (props: {
   });
 
   const barChartOptions = computed(() => ({
-    tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
-    legend: { data: ["Responses"], top: "0%" },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      formatter: (params: any[]) => {
+        const p = params[0];
+        const d = barData.value[p.dataIndex];
+        if (!d) return "";
+        // observed min–max latency of the bucket's responses
+        const range =
+          isNil(d.minMs) || isNil(d.maxMs)
+            ? "No responses"
+            : `${formatMs(d.minMs)} – ${formatMs(d.maxMs)}`;
+        return `${p.marker}${escapeHtml(d.label)}: <b>${d.count}</b><br/>Range: ${range}`;
+      },
+    },
     grid: { left: "3%", right: "3%", bottom: "20%" },
     xAxis: {
       type: "category",
-      data: barData.value.map((d) => d.range),
+      data: barData.value.map((d) => d.label),
       axisLabel: { interval: 0, rotate: 0 },
     },
     yAxis: {
@@ -73,8 +101,10 @@ export const useLatencyCharts = (props: {
         name: "Responses",
         type: "bar",
         barWidth: "60%",
-        color: "#6366F1",
-        data: barData.value.map((d) => d.count),
+        data: barData.value.map((d) => ({
+          value: d.count,
+          itemStyle: { color: d.color },
+        })),
         itemStyle: { borderRadius: [4, 4, 0, 0] },
       },
     ],

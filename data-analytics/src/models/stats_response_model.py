@@ -34,6 +34,12 @@ class Column(CamelCaseModel):
     lower_threshold: Optional[float] = None
     upper_threshold: Optional[float] = None
     alert: bool
+    # The attribute's analysis values in this chunk ("N/A" when non-numeric, None when the chunk has
+    # none); only on attributes, not on the derived <attr>_std / <attr>_count columns
+    min: float | str | None = None
+    max: float | str | None = None
+    mean: float | str | None = None
+    outliers: int | str | None = None
 
     @field_validator("value", mode="before")
     @classmethod
@@ -71,10 +77,19 @@ class DataDriftSummary(CamelCaseModel):
     alert: bool
 
 
+class LatencyBucket(CamelCaseModel):
+    count: int
+    # Observed latency range in the bucket; None when it has no responses
+    min_ms: float | None = None
+    max_ms: float | None = None
+
+
 class LatencyDistributionReport(CamelCaseModel):
-    bin: str
-    bin_edges: list[float]
-    latency: float
+    """Analysis responses per bucket: <= reference median, between median and p95, >= p95."""
+
+    normal_response: LatencyBucket
+    slower_than_usual_response: LatencyBucket
+    unacceptably_slow_response: LatencyBucket
 
 
 class ResponseTimesReport(CamelCaseModel):
@@ -91,7 +106,7 @@ class StatsResponse(CamelCaseModel):
     data_drift_report: Optional[list[DataDriftReport]] = None
     data_distribution_report: Optional[list[DataDistributionReport]] = None
     data_drift_summary: Optional[list[DataDriftSummary]] = None
-    latency_distribution_report: Optional[list[LatencyDistributionReport]] = None
+    latency_distribution_report: Optional[LatencyDistributionReport] = None
     response_times_report: Optional[list[ResponseTimesReport]] = None
     # Why the reports are empty, e.g. reference range not complete yet.
     message: str | None = None

@@ -36,7 +36,7 @@ const {
     </div>
     <div>
       <ChartContainer
-        :title="'Valid / Missing Values By Attribute'"
+        :title="'Observed / Missing Values By Attribute'"
         :loading="loading"
         :error="error"
         :options="horizontalbarChartOptions"
@@ -48,6 +48,7 @@ const {
         <Table
           :attribute-quality-report="attributeQualityReport"
           :data-drift-summary="dataDriftSummary"
+          :data-drift-report="dataDriftReport"
           :loading="loading"
         />
       </div>

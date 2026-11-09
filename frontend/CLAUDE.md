@@ -21,7 +21,7 @@ No test runner is configured.
 ### Key directories under `app/`
 
 - `pages/index.vue` — Single page: orchestrates data loading, holds all top-level state, renders all dashboard sections
-- `composables/api.ts` — All HTTP calls via Nuxt `$fetch`; two endpoints: `GET /api/entities`, `POST /api/stats`
+- `composables/api.ts` — All HTTP calls via Nuxt `$fetch`: `GET /api/clusters`, `GET /api/brokers/:clusterId`, `GET /api/entities/:brokerId`, `POST /api/stats`
 - `composables/timeRangeHandler.ts` — Converts `RangeOption` enum values to date ranges
 - `composables/errorHandler.ts` — Maps HTTP status codes to user-facing messages
 - `types/` — Global types (`declare global`) for API payloads and UI chart shapes; no `.d.ts` files
@@ -40,7 +40,7 @@ components/
 
 ```
 index.vue
-├── sections/Filters.vue               # Entity selector + time range picker
+├── sections/Filters.vue               # Cluster → broker → entity selectors + time range picker
 ├── sections/CardContainer.vue → base/Card.vue
 ├── sections/AttributeDistribution.vue # Data drift + distribution charts
 │   └── Charts/Chart.vue               # Thin VChart (ECharts) wrapper
@@ -52,9 +52,10 @@ All components are auto-imported by filename — no explicit `import` needed for
 
 ### Data flow
 
-1. On mount, `index.vue` calls `EntitiesAPI.get()` to populate the entity dropdown
-2. On filter change, calls `StatsAPI.post(payload)` and fans out the response to child components via props
-3. Child components are purely presentational — they receive typed data and render charts
+1. On mount, `index.vue` calls `ClustersAPI.get()`: `{ title, value }[]`, one per distinct broker `org` (`value` = org, `title` from `CLUSTER_TITLES` in the backend registry), ordered by cluster id
+2. `Filters.vue` cascades cluster → broker → entity: each list's watcher auto-selects its first option, which fetches the next list (`BrokersAPI.get(org)`: `{ title, value }[]` with `value` = broker id and `title` = id with the cluster prefix dropped for cluster 3 — `aua`, `uc3`; then `EntitiesAPI.get(brokerId)`). Changing a dropdown clears the selections below it so the auto-select runs again
+3. Stats load only when the user clicks **Fetch**: `StatsAPI.post({ from, to, clusterId, brokerId, entityId })`, response fanned out to child components via props. Changing a select keeps the current dashboard until the next Fetch; the Fetch button is solid while the selection differs from the loaded one
+4. Child components are purely presentational — they receive typed data and render charts
 
 ### Charts
 

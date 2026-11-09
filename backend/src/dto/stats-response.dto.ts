@@ -64,10 +64,10 @@ export class StatsResponseDTO {
     /* istanbul ignore next */
     () => LatencyDistributionReportDTO,
   )
-  @IsArray()
-  @ValidateNested({ each: true })
+  @IsObject()
+  @ValidateNested()
   @ApiProperty()
-  readonly latencyDistributionReport?: LatencyDistributionReportDTO[];
+  readonly latencyDistributionReport?: LatencyDistributionReportDTO;
 
   @IsOptional()
   @Type(

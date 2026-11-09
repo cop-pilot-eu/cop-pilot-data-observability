@@ -303,7 +303,39 @@ class DataObservability:
         data_drift_dataset = data_drift_dataset.rename(columns={0: "columns"})
 
         final_df = data_drift_dataset[data_drift_dataset["chunk_period"] == "analysis"]
-        return final_df.to_dict(orient="records"), drift_summary.to_dict(orient="records")
+        chunks = final_df.to_dict(orient="records")
+        self._add_chunk_stats(chunks)
+        return chunks, drift_summary.to_dict(orient="records")
+
+    def _add_chunk_stats(self, chunks: list[dict]) -> None:
+        """
+        Add min / max / mean / outliers of each attribute's analysis values in the chunk to its drift column.
+        Outliers are flagged over the whole analysis range (as in the attribute report) and counted per chunk,
+        so the chunks of an attribute add up to its total. Derived <attr>_std / <attr>_count columns get none.
+        """
+        df = self.dataframe_analysis
+        observed_at = pd.to_datetime(df[self.OBSERVED_TIME_COL], utc=True)
+        numeric = {col for col in self.base_feature_names if is_numeric_dtype(df[col])}
+        outlier = {col: np.abs(stats.zscore(df[col], nan_policy="omit")) > 3 for col in numeric}
+
+        for chunk in chunks:
+            start = pd.to_datetime(chunk["chunk_start_date"], utc=True)
+            end = pd.to_datetime(chunk["chunk_end_date"], utc=True)
+            in_chunk = ((observed_at >= start) & (observed_at <= end)).to_numpy()
+            for column in chunk["columns"]:
+                name = column["name"]
+                if name not in self.base_feature_names:
+                    continue
+                if name not in numeric:
+                    column.update(min="N/A", max="N/A", mean="N/A", outliers="N/A")
+                    continue
+                values = df.loc[in_chunk, name].dropna()
+                column.update(
+                    min=values.min().item() if len(values) else None,
+                    max=values.max().item() if len(values) else None,
+                    mean=values.mean().item() if len(values) else None,
+                    outliers=int(np.sum(outlier[name][in_chunk])),
+                )
 
     def get_latency_report(self) -> tuple:
         # One row per timestamp (not per attribute), latency column renamed to the report's field name
@@ -313,9 +345,6 @@ class DataObservability:
         analysis_data_source = self.dataframe_analysis.rename(columns={self.LATENCY_COL: "latency"})
         analysis_data_source[self.OBSERVED_TIME_COL] = pd.to_datetime(analysis_data_source[self.OBSERVED_TIME_COL], utc=True)
 
-        analysis_latency_distribution = self._calculate_data_distribution(
-            dataframe=analysis_data_source, bin_size=5, columns_to_exclude=None, columns_to_include=["latency"]
-        )
         analysis_data_source["normal_response"] = analysis_data_source["latency"].apply(
             lambda x: 1 if x <= baseline_statistics["median"] else 0
         )
@@ -328,8 +357,18 @@ class DataObservability:
         analysis_data_source = analysis_data_source[
             ["observed_at", "latency", "normal_response", "slower_than_usual_response", "unacceptably_slow_response"]
         ]
+        # Analysis responses per bucket, split at the reference median and p95, with the
+        # observed latency range in each (None when the bucket is empty)
+        latency_distribution = {}
+        for col in ["normal_response", "slower_than_usual_response", "unacceptably_slow_response"]:
+            latencies = analysis_data_source.loc[analysis_data_source[col] == 1, "latency"]
+            latency_distribution[col] = {
+                "count": len(latencies),
+                "min_ms": latencies.min().item() if len(latencies) else None,
+                "max_ms": latencies.max().item() if len(latencies) else None,
+            }
 
-        return analysis_latency_distribution.to_dict(orient="records"), analysis_data_source.to_dict(orient="records")
+        return latency_distribution, analysis_data_source.to_dict(orient="records")
 
     def get_multivariate_drift_report(self) -> dict:
         calc = nml.DataReconstructionDriftCalculator(

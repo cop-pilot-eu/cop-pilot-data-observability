@@ -24,7 +24,33 @@ export const getTimeGroupKey = (
   return `${mdd}/${mmm}/${monday.getFullYear()}`;
 };
 
-export const parseTimeGroupKey = (k: string): number => {
+// A drift chunk's span: dates only for day-or-longer chunks (one date when it is
+// a single day), date and time for shorter ones. The 23 h cut-off matches the
+// Drift Score chart's axis labels and absorbs DST days.
+export const formatChunkRange = (start: Date, end: Date): string => {
+  const subDay = end.getTime() - start.getTime() < 23 * 3_600_000;
+  if (subDay)
+    return `${getTimeGroupKey(start, "lastHour")} – ${getTimeGroupKey(end, "lastHour")}`;
+  const from = getTimeGroupKey(start, "lastWeek");
+  const to = getTimeGroupKey(end, "lastWeek");
+  return from === to ? from : `${from} – ${to}`;
+};
+
+// Short chunk label for the attribute table: "28 Oct" for a day, "26 Oct – 1 Nov"
+// for longer chunks, "28 Oct 14:00 – 18:59" for sub-day ones (same 23 h cut-off)
+export const formatChunkLabel = (start: Date, end: Date): string => {
+  const day = (d: Date) =>
+    d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const time = (d: Date) =>
+    d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  if (end.getTime() - start.getTime() < 23 * 3_600_000) {
+    const to = day(end) === day(start) ? time(end) : `${day(end)} ${time(end)}`;
+    return `${day(start)} ${time(start)} – ${to}`;
+  }
+  return day(start) === day(end) ? day(start) : `${day(start)} – ${day(end)}`;
+};
+
+export const parseTimeGroupKey =(k: string): number => {
   const parts = k.split(" ");
   const dateParts = (parts[0] ?? "").split("/").map(Number);
   const timeParts = (parts[1] ?? "00:00").split(":").map(Number);

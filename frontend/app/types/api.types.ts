@@ -41,6 +41,12 @@ declare global {
     lowerThreshold: number | null;
     upperThreshold: number;
     alert: boolean;
+    // attribute's analysis values in the chunk: "N/A" non-numeric, null none,
+    // absent on the derived <attr>_std / <attr>_count columns
+    min?: number | string | null;
+    max?: number | string | null;
+    mean?: number | string | null;
+    outliers?: number | string | null;
   };
 
   type DataDriftReportItemAPI = {
@@ -71,10 +77,17 @@ declare global {
     alert: boolean;
   };
 
-  type LatencyDistributionReportItemAPI = {
-    bin: string;
-    binEdges: number[];
-    latency: number;
+  type LatencyBucketAPI = {
+    count: number;
+    // observed latency range in the bucket; null when it is empty
+    minMs: number | null;
+    maxMs: number | null;
+  };
+
+  type LatencyDistributionReportAPI = {
+    normalResponse: LatencyBucketAPI;
+    slowerThanUsualResponse: LatencyBucketAPI;
+    unacceptablySlowResponse: LatencyBucketAPI;
   };
 
   type ResponseTimesReportItemAPI = {
@@ -91,7 +104,7 @@ declare global {
     dataDriftReport: DataDriftReportItemAPI[];
     dataDistributionReport: DataDistributionReportItemAPI[];
     dataDriftSummary: DataDriftSummaryItemAPI[];
-    latencyDistributionReport: LatencyDistributionReportItemAPI[];
+    latencyDistributionReport: LatencyDistributionReportAPI;
     responseTimesReport: ResponseTimesReportItemAPI[];
     message?: string;
   };

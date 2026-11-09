@@ -28,7 +28,26 @@ const getValue = computed(() => {
         v-if="!loading"
         class="flex justify-between text-neutral-400 items-center"
       >
-        <div class="text-sm font-medium">{{ card.title }}</div>
+        <div class="flex items-center gap-x-1">
+          <div class="text-sm font-medium">{{ card.title }}</div>
+          <UTooltip
+            v-if="card.info"
+            :delay-duration="0"
+            :content="{ side: 'top', sideOffset: 6 }"
+            :ui="{
+              // Nuxt UI defaults are a fixed h-6 and a truncated one-line text
+              content: 'max-w-xs h-auto py-2',
+              text: 'whitespace-normal',
+            }"
+            :text="card.info"
+          >
+            <Icon
+              name="heroicons:information-circle"
+              class="size-4 cursor-help"
+              aria-label="About this KPI"
+            />
+          </UTooltip>
+        </div>
         <Icon v-if="card.headerIcon" :name="card.headerIcon" class="size-4" />
       </div>
       <USkeleton v-else class="bg-neutral-100 h-4 w-full" />

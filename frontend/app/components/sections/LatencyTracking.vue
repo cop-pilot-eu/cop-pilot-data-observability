@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const props = withDefaults(
   defineProps<{
-    latencyDistributionReport: LatencyDistributionReportItemAPI[] | undefined;
+    latencyDistributionReport: LatencyDistributionReportAPI | undefined;
     responseTimesReport: ResponseTimesReportItemAPI[] | undefined;
     rangeSelected: RangeOption | undefined;
     loading: boolean;
