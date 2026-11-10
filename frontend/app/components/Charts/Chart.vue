@@ -47,6 +47,12 @@ const loadingSpinnerStatus = computed(() => !hasError && props.loading);
   <ErrorCard v-else-if="hasError" :height="height" :errorMsg="hasError" />
   <NoResultsFound v-else-if="noData" :height="height" />
   <div v-else :class="['flex w-full min-w-0', height]">
-    <VChart :option="options" autoresize class="w-full" />
+    <!-- notMerge: a merge keeps keys the new option omits (e.g. a stale yAxis.max) -->
+    <VChart
+      :option="options"
+      :update-options="{ notMerge: true }"
+      autoresize
+      class="w-full"
+    />
   </div>
 </template>
